@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+<<<<<<< HEAD
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +33,13 @@ import com.example.compare.model.ProdutoPreco
 import com.example.compare.model.Usuario
 import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
+=======
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.compare.model.DadosMercado // IMPORT CORRIGIDO
+import com.example.compare.model.ProdutoPreco
+import com.example.compare.utils.* import com.google.firebase.firestore.DocumentSnapshot
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import java.util.Date
@@ -242,6 +250,7 @@ fun TelaHome(
         }
     }
 
+<<<<<<< HEAD
     if (mostrarBannerBoasVindas) {
         AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
     }
@@ -268,6 +277,13 @@ fun TelaHome(
         )
     }
 
+=======
+    if (mostrarBanner) {
+        AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
+    }
+    if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
+    if (mostrarSuporte) { var msg by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { mostrarSuporte = false }, title = { Text("Suporte") }, text = { OutlinedTextField(value = msg, onValueChange = { msg = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if(msg.isNotBlank()) { db.collection("suporte").add(hashMapOf("usuario" to usuarioLogado, "msg" to msg)); mostrarSuporte = false } }) { Text("Enviar") } }, dismissButton = { TextButton(onClick = { mostrarSuporte = false }) { Text("Cancelar") } }) }
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
     if (mostrarPainelAdmin) DialogoAdmin(onDismiss = { mostrarPainelAdmin = false })
 
     if (grupoSelecionadoParaDetalhes != null) {
@@ -287,13 +303,19 @@ fun TelaHome(
     }
 }
 
+<<<<<<< HEAD
 // --- NOVO PAINEL ADMIN ---
+=======
+// --- DIALOGOS ---
+
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 @Composable
 fun DialogoAdmin(onDismiss: () -> Unit) {
     var aba by remember { mutableStateOf(0) }
     var novoBanimento by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
 
+<<<<<<< HEAD
     // Listas para as novas abas
     var listaUsuarios by remember { mutableStateOf(emptyList<Usuario>()) }
     var listaSuporte by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
@@ -319,10 +341,13 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
         }
     }
 
+=======
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Painel Admin") },
         text = {
+<<<<<<< HEAD
             Column(modifier = Modifier.height(400.dp)) { // Altura fixa para caber a lista
                 TabRow(selectedTabIndex = aba) {
                     Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") })
@@ -396,6 +421,33 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
                             Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
+=======
+            Column {
+                TabRow(selectedTabIndex = aba) {
+                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Info") })
+                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Banir") })
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                if (aba == 0) {
+                    Text("Gerencie mercados editando-os na lista de produtos.")
+                } else {
+                    OutlinedTextField(
+                        value = novoBanimento,
+                        onValueChange = { novoBanimento = it },
+                        label = { Text("Usuário para banir") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Button(
+                        onClick = {
+                            if(novoBanimento.isNotBlank()) {
+                                db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date()))
+                                novoBanimento = ""
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    ) { Text("BANIR") }
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
                 }
             }
         },
@@ -403,8 +455,11 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
     )
 }
 
+<<<<<<< HEAD
 // --- OUTROS DIÁLOGOS (Localização e Mercado) MANTIDOS IGUAIS ---
 
+=======
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 @Composable
 fun DialogoRankingDetalhes(
     grupoOfertas: List<ProdutoPreco>,
@@ -577,6 +632,10 @@ fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> 
     )
 }
 
+<<<<<<< HEAD
+=======
+// ESTA ERA A FUNÇÃO QUE FALTAVA:
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> Unit) {

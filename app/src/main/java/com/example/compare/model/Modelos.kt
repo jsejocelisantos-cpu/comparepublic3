@@ -2,8 +2,12 @@ package com.example.compare.model
 
 import java.util.Date
 
+<<<<<<< HEAD
 // --- MODELOS DE DADOS ---
 
+=======
+// --- 1. MODELO DE DADOS ---
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 data class ProdutoPreco(
     val id: String = "",
     val codigoBarras: String = "",
@@ -18,6 +22,7 @@ data class ProdutoPreco(
     val comentario: String = "",
     val fotoBase64: String = "",
     val chatComentarios: List<String> = emptyList()
+<<<<<<< HEAD
 )
 
 data class DadosMercado(
@@ -39,4 +44,6 @@ data class MensagemSuporte(
     val usuario: String = "",
     val msg: String = "",
     val data: Date = Date()
+=======
+>>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 )
