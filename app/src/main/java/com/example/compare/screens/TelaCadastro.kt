@@ -27,7 +27,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown // Ícone de seta
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Search
@@ -58,10 +58,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties // Importante para o Autocomplete não fechar teclado
 import androidx.core.content.ContextCompat
 import com.example.compare.R
 import com.example.compare.model.ProdutoPreco
@@ -71,6 +74,7 @@ import com.example.compare.utils.temOfensa
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.Date
+import java.util.Locale
 
 // --- TELA DE EDIÇÃO INTERNA (Mantida igual) ---
 @Composable
@@ -125,7 +129,7 @@ fun TelaEdicaoInterna(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (Produ
 }
 
 
-// --- 6. TELA DE CADASTRO ---
+// --- TELA DE CADASTRO ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TelaCadastro(
@@ -142,23 +146,30 @@ fun TelaCadastro(
 
     var codigoBarras by remember { mutableStateOf("") }
     var nome by remember { mutableStateOf("") }
-    var preco by remember { mutableStateOf("") }
+
+    // Preço com máscara
+    var preco by remember { mutableStateOf(TextFieldValue("0,00", TextRange(4))) }
+
     var comentario by remember { mutableStateOf("") }
     var metodo by remember { mutableStateOf("MANUAL") }
     var fotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     var mostrarOpcoesFoto by remember { mutableStateOf(false) }
 
+    // --- AUTOCOMPLETE DE MERCADO ---
     var mercado by remember { mutableStateOf("") }
     val listaMercados = remember { mutableStateListOf("Cooper", "Komprão", "Fort Atacadista", "Angeloni", "Giassi", "Rancho Bom", "Outro") }
     var mercadoExpandido by remember { mutableStateOf(false) }
 
-    val scanner = GmsBarcodeScanning.getClient(context)
+    // Filtra a lista conforme o usuário digita
+    val mercadosFiltrados = remember(mercado, listaMercados) {
+        if (mercado.isBlank()) listaMercados else listaMercados.filter { it.contains(mercado, ignoreCase = true) }
+    }
 
-    // ScrollState para permitir rolar a tela
+    val scanner = GmsBarcodeScanning.getClient(context)
     val scrollState = rememberScrollState()
 
-    // CARREGA MERCADOS
+    // CARREGA MERCADOS DO FIREBASE
     LaunchedEffect(Unit) {
         db.collection("mercados").get().addOnSuccessListener { result ->
             for (document in result) {
@@ -191,6 +202,9 @@ fun TelaCadastro(
         if (produtoPreenchido != null) {
             nome = produtoPreenchido.nomeProduto
             codigoBarras = produtoPreenchido.codigoBarras
+            val precoFormatado = String.format(Locale("pt", "BR"), "%.2f", produtoPreenchido.valor)
+            preco = TextFieldValue(precoFormatado, TextRange(precoFormatado.length))
+
             if (produtoPreenchido.fotoBase64.isNotEmpty()) {
                 fotoBitmap = stringParaBitmap(produtoPreenchido.fotoBase64)
             }
@@ -241,14 +255,12 @@ fun TelaCadastro(
         )
     }
 
-    // AQUI ESTÁ A CORREÇÃO:
-    // Adicionei .verticalScroll(scrollState) e .imePadding()
     Column(
         modifier = Modifier
             .padding(16.dp)
             .fillMaxSize()
-            .verticalScroll(scrollState) // Permite rolar
-            .imePadding() // Empurra para cima quando o teclado abre
+            .verticalScroll(scrollState)
+            .imePadding()
     ) {
         Text(if(produtoPreenchido != null) "Novo Preço" else "Cadastrar", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(16.dp))
@@ -258,7 +270,6 @@ fun TelaCadastro(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. IMAGEM DO SCANNER (MAIOR E CLICÁVEL)
                 Image(
                     painter = painterResource(id = R.drawable.scancode),
                     contentDescription = "Scan",
@@ -282,7 +293,6 @@ fun TelaCadastro(
                     contentScale = ContentScale.Fit
                 )
 
-                // 2. BOTÃO FOTO/GALERIA
                 Button(
                     onClick = { mostrarOpcoesFoto = true },
                     modifier = Modifier.weight(1f).height(50.dp),
@@ -346,26 +356,55 @@ fun TelaCadastro(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
+        // --- CAMPO MERCADO COM AUTOCOMPLETE ---
         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             OutlinedTextField(
                 value = mercado,
-                onValueChange = { mercado = it },
+                onValueChange = {
+                    mercado = it
+                    mercadoExpandido = true // Abre o menu ao digitar
+                },
                 label = { Text("Mercado") },
-                trailingIcon = { Icon(Icons.Default.Add, null, Modifier.clickable { mercadoExpandido = true }) },
+                trailingIcon = {
+                    Icon(Icons.Default.ArrowDropDown, null, Modifier.clickable { mercadoExpandido = !mercadoExpandido })
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
-            DropdownMenu(expanded = mercadoExpandido, onDismissRequest = { mercadoExpandido = false }) {
-                listaMercados.forEach { m ->
-                    DropdownMenuItem(text = { Text(m) }, onClick = { mercado = m; mercadoExpandido = false })
+
+            // Só mostra o menu se estiver expandido E tiver itens
+            if (mercadoExpandido && mercadosFiltrados.isNotEmpty()) {
+                DropdownMenu(
+                    expanded = mercadoExpandido,
+                    onDismissRequest = { mercadoExpandido = false },
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    properties = PopupProperties(focusable = false) // PERMITE DIGITAR ENQUANTO O MENU TÁ ABERTO
+                ) {
+                    mercadosFiltrados.forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(m) },
+                            onClick = {
+                                mercado = m;
+                                mercadoExpandido = false
+                            }
+                        )
+                    }
                 }
             }
         }
 
         OutlinedTextField(
             value = preco,
-            onValueChange = { preco = it },
+            onValueChange = { novoValor ->
+                val digits = novoValor.text.filter { it.isDigit() }
+                if (digits.length <= 10) {
+                    val valorRaw = if (digits.isEmpty()) 0L else digits.toLong()
+                    val valorDouble = valorRaw / 100.0
+                    val formatado = String.format(Locale("pt", "BR"), "%.2f", valorDouble)
+                    preco = TextFieldValue(formatado, TextRange(formatado.length))
+                }
+            },
             label = { Text("Preço (R$)") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
@@ -391,8 +430,9 @@ fun TelaCadastro(
                     return@Button
                 }
 
-                val precoFinal = preco.replace(",", ".").toDoubleOrNull()
-                if (nome.isNotEmpty() && precoFinal != null && mercado.isNotEmpty()) {
+                val precoFinal = preco.text.replace(".", "").replace(",", ".").toDoubleOrNull()
+
+                if (nome.isNotEmpty() && precoFinal != null && mercado.isNotEmpty() && precoFinal > 0) {
 
                     if (!listaMercados.contains(mercado)) {
                         db.collection("mercados").add(hashMapOf("nome" to mercado))
