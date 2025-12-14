@@ -23,7 +23,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-<<<<<<< HEAD
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,13 +32,6 @@ import com.example.compare.model.ProdutoPreco
 import com.example.compare.model.Usuario
 import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
-=======
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.compare.model.DadosMercado // IMPORT CORRIGIDO
-import com.example.compare.model.ProdutoPreco
-import com.example.compare.utils.* import com.google.firebase.firestore.DocumentSnapshot
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import java.util.Date
@@ -250,40 +242,16 @@ fun TelaHome(
         }
     }
 
-<<<<<<< HEAD
     if (mostrarBannerBoasVindas) {
         AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
     }
     if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
 
-    // --- DIÁLOGO DE SUPORTE ATUALIZADO (Salva com Data) ---
+    // --- NOVO DIÁLOGO DE SUPORTE DO USUÁRIO (COM HISTÓRICO) ---
     if (mostrarSuporte) {
-        var msg by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { mostrarSuporte = false },
-            title = { Text("Suporte") },
-            text = { OutlinedTextField(value = msg, onValueChange = { msg = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = {
-                Button(onClick = {
-                    if(msg.isNotBlank()) {
-                        // Agora salvamos como objeto para ter a data
-                        val suporteMsg = MensagemSuporte(usuario = usuarioLogado, msg = msg, data = Date())
-                        db.collection("suporte").add(suporteMsg)
-                        mostrarSuporte = false
-                    }
-                }) { Text("Enviar") }
-            },
-            dismissButton = { TextButton(onClick = { mostrarSuporte = false }) { Text("Cancelar") } }
-        )
+        DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
     }
 
-=======
-    if (mostrarBanner) {
-        AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
-    }
-    if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
-    if (mostrarSuporte) { var msg by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { mostrarSuporte = false }, title = { Text("Suporte") }, text = { OutlinedTextField(value = msg, onValueChange = { msg = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if(msg.isNotBlank()) { db.collection("suporte").add(hashMapOf("usuario" to usuarioLogado, "msg" to msg)); mostrarSuporte = false } }) { Text("Enviar") } }, dismissButton = { TextButton(onClick = { mostrarSuporte = false }) { Text("Cancelar") } }) }
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
     if (mostrarPainelAdmin) DialogoAdmin(onDismiss = { mostrarPainelAdmin = false })
 
     if (grupoSelecionadoParaDetalhes != null) {
@@ -303,37 +271,110 @@ fun TelaHome(
     }
 }
 
-<<<<<<< HEAD
-// --- NOVO PAINEL ADMIN ---
-=======
-// --- DIALOGOS ---
+// --- DIALOGO DE SUPORTE DO USUÁRIO (NOVA FUNÇÃO) ---
+@Composable
+fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
+    val db = FirebaseFirestore.getInstance()
+    var msg by remember { mutableStateOf("") }
+    var historico by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
+    var carregando by remember { mutableStateOf(true) }
 
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
+    LaunchedEffect(Unit) {
+        db.collection("suporte")
+            .whereEqualTo("usuario", usuarioLogado)
+            .addSnapshotListener { result, _ ->
+                if (result != null) {
+                    historico = result.documents.map { doc -> doc.toObject(MensagemSuporte::class.java)!!.copy(id = doc.id) }.sortedBy { it.data }
+                    carregando = false
+                }
+            }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Suporte e Dúvidas") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().height(400.dp)) {
+                if (carregando) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                } else {
+                    LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        if(historico.isEmpty()) {
+                            item { Text("Envie sua dúvida abaixo.", color = Color.Gray, modifier = Modifier.padding(8.dp)) }
+                        }
+                        items(historico) { item ->
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFEEEEEE)),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Text("Você: ${item.msg}", fontWeight = FontWeight.Bold, color = Color.Black)
+                                    if(item.resposta.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Admin: ${item.resposta}", color = Color(0xFF006400), fontWeight = FontWeight.Bold)
+                                        Text(formatarData(item.dataResposta ?: Date()), fontSize = 10.sp, color = Color.Gray)
+                                    } else {
+                                        Text("Aguardando resposta...", fontSize = 10.sp, color = Color.Red)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = msg,
+                        onValueChange = { msg = it },
+                        label = { Text("Nova mensagem") },
+                        modifier = Modifier.fillMaxWidth(),
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                if(msg.isNotBlank()) {
+                                    val nova = MensagemSuporte(usuario = usuarioLogado, msg = msg, data = Date())
+                                    db.collection("suporte").add(nova)
+                                    msg = ""
+                                }
+                            }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) }
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } }
+    )
+}
+
+// --- PAINEL ADMIN ATUALIZADO (COM RESPOSTA) ---
 @Composable
 fun DialogoAdmin(onDismiss: () -> Unit) {
     var aba by remember { mutableStateOf(0) }
     var novoBanimento by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
 
-<<<<<<< HEAD
-    // Listas para as novas abas
+    // Estados
     var listaUsuarios by remember { mutableStateOf(emptyList<Usuario>()) }
     var listaSuporte by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
     var carregando by remember { mutableStateOf(false) }
 
-    // Carrega dados quando muda a aba
-    LaunchedEffect(aba) {
+    // Estado para responder mensagem
+    var mensagemParaResponder by remember { mutableStateOf<MensagemSuporte?>(null) }
+    var textoResposta by remember { mutableStateOf("") }
+
+    // Carrega dados
+    LaunchedEffect(aba, mensagemParaResponder) { // Recarrega se fechar o dialog de resposta
         carregando = true
-        if (aba == 0) { // Aba Usuários
+        if (aba == 0) {
             db.collection("usuarios").get().addOnSuccessListener { result ->
                 listaUsuarios = result.toObjects(Usuario::class.java)
                 carregando = false
             }
-        } else if (aba == 1) { // Aba Suporte
+        } else if (aba == 1) {
             db.collection("suporte")
                 .orderBy("data", Query.Direction.DESCENDING)
                 .get().addOnSuccessListener { result ->
-                    listaSuporte = result.toObjects(MensagemSuporte::class.java)
+                    // IMPORTANTE: Mapear o ID do documento
+                    listaSuporte = result.documents.map { doc ->
+                        doc.toObject(MensagemSuporte::class.java)!!.copy(id = doc.id)
+                    }
                     carregando = false
                 }
         } else {
@@ -341,14 +382,41 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
         }
     }
 
-=======
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
+    if (mensagemParaResponder != null) {
+        AlertDialog(
+            onDismissRequest = { mensagemParaResponder = null },
+            title = { Text("Responder ${mensagemParaResponder!!.usuario}") },
+            text = {
+                Column {
+                    Text("Dúvida: ${mensagemParaResponder!!.msg}", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = textoResposta,
+                        onValueChange = { textoResposta = it },
+                        label = { Text("Sua Resposta") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (textoResposta.isNotBlank()) {
+                        db.collection("suporte").document(mensagemParaResponder!!.id)
+                            .update(mapOf("resposta" to textoResposta, "dataResposta" to Date()))
+                        mensagemParaResponder = null
+                        textoResposta = ""
+                    }
+                }) { Text("Enviar Resposta") }
+            },
+            dismissButton = { TextButton(onClick = { mensagemParaResponder = null }) { Text("Cancelar") } }
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Painel Admin") },
         text = {
-<<<<<<< HEAD
-            Column(modifier = Modifier.height(400.dp)) { // Altura fixa para caber a lista
+            Column(modifier = Modifier.height(400.dp)) {
                 TabRow(selectedTabIndex = aba) {
                     Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") })
                     Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Suporte") })
@@ -379,21 +447,27 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
                                 }
                             }
                         }
-                        1 -> { // MENSAGENS DE SUPORTE
+                        1 -> { // MENSAGENS DE SUPORTE (RESPONDER)
                             if(listaSuporte.isEmpty()) Text("Nenhuma mensagem.")
                             LazyColumn {
                                 items(listaSuporte) { msg ->
                                     Card(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF333333))
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { mensagemParaResponder = msg },
+                                        colors = CardDefaults.cardColors(containerColor = if(msg.resposta.isEmpty()) Color(0xFF4A4A4A) else Color(0xFF2E7D32)) // Verde se respondido
                                     ) {
                                         Column(modifier = Modifier.padding(8.dp)) {
                                             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                                                 Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan)
-                                                Text(formatarData(msg.data), fontSize = 10.sp, color = Color.Gray)
+                                                Text(formatarData(msg.data), fontSize = 10.sp, color = Color.LightGray)
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(msg.msg, color = Color.White)
+                                            if (msg.resposta.isNotEmpty()) {
+                                                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp))
+                                                Text("Resp: ${msg.resposta}", color = Color.Yellow, fontSize = 12.sp)
+                                            } else {
+                                                Text("Toque para responder", fontSize = 10.sp, color = Color.LightGray, modifier = Modifier.padding(top = 4.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -421,33 +495,6 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
                             Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
-=======
-            Column {
-                TabRow(selectedTabIndex = aba) {
-                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Info") })
-                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Banir") })
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                if (aba == 0) {
-                    Text("Gerencie mercados editando-os na lista de produtos.")
-                } else {
-                    OutlinedTextField(
-                        value = novoBanimento,
-                        onValueChange = { novoBanimento = it },
-                        label = { Text("Usuário para banir") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = {
-                            if(novoBanimento.isNotBlank()) {
-                                db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date()))
-                                novoBanimento = ""
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) { Text("BANIR") }
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
                 }
             }
         },
@@ -455,11 +502,8 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
     )
 }
 
-<<<<<<< HEAD
 // --- OUTROS DIÁLOGOS (Localização e Mercado) MANTIDOS IGUAIS ---
 
-=======
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 @Composable
 fun DialogoRankingDetalhes(
     grupoOfertas: List<ProdutoPreco>,
@@ -632,10 +676,7 @@ fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> 
     )
 }
 
-<<<<<<< HEAD
-=======
 // ESTA ERA A FUNÇÃO QUE FALTAVA:
->>>>>>> 3d41a7eb3184cea72bb4f1555414a807dd43964c
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> Unit) {
