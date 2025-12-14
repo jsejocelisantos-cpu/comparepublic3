@@ -25,7 +25,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Dehaze
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -54,11 +53,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource // IMPORTANTE: Import para carregar imagem
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.compare.R // IMPORTANTE: Import dos recursos (R) para achar o scancode
 import com.example.compare.model.ProdutoPreco
 import com.example.compare.utils.bitmapParaString
 import com.example.compare.utils.stringParaBitmap
@@ -208,6 +209,7 @@ fun TelaCadastro(
 
         if (produtoPreenchido == null) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // --- BOTÃO DE SCAN COM IMAGEM ---
                 Button(
                     onClick = {
                         if (temPermissaoCamera) {
@@ -224,12 +226,17 @@ fun TelaCadastro(
                         } else { launcherPermissao.launch(Manifest.permission.CAMERA) }
                     },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black),
-                    contentPadding = PaddingValues(4.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent), // Fundo transparente para a imagem aparecer bem
+                    contentPadding = PaddingValues(0.dp) // Sem bordas internas
                 ) {
-                    Icon(Icons.Default.Dehaze, null)
-                    Text("Scan", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
+                    Image(
+                        painter = painterResource(id = R.drawable.scancode), // AQUI ESTÁ A IMAGEM!
+                        contentDescription = "Scan",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
                 }
+
                 Button(
                     onClick = {
                         if (temPermissaoCamera) launcherCamera.launch(null)
