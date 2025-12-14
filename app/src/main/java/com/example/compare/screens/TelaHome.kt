@@ -221,7 +221,10 @@ fun TelaHome(
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF006400))
+                                        Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(
+                                            0xFF03A9F4
+                                        )
+                                        )
                                     }
                                 }
                             }
@@ -566,7 +569,7 @@ fun DialogoRankingDetalhes(
                                         text = oferta.mercado,
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 16.sp,
-                                        color = Color.Blue,
+                                        color = Color(0xFF03A9F4),
                                         modifier = Modifier.clickable { mercadoSelecionado = oferta.mercado }
                                     )
                                     Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
