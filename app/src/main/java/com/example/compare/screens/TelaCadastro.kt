@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width // <--- O IMPORT QUE FALTAVA
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -53,13 +54,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.painterResource // IMPORTANTE: Import para carregar imagem
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.compare.R // IMPORTANTE: Import dos recursos (R) para achar o scancode
+import com.example.compare.R
 import com.example.compare.model.ProdutoPreco
 import com.example.compare.utils.bitmapParaString
 import com.example.compare.utils.stringParaBitmap
@@ -68,7 +69,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.Date
 
-// --- TELA DE EDIÇÃO INTERNA (Usada no diálogo da HOME) ---
+// --- TELA DE EDIÇÃO INTERNA (Mantida igual) ---
 @Composable
 fun TelaEdicaoInterna(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (ProdutoPreco) -> Unit) {
     var nomeEd by remember { mutableStateOf(oferta.nomeProduto) }
@@ -143,6 +144,9 @@ fun TelaCadastro(
     var metodo by remember { mutableStateOf("MANUAL") }
     var fotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
+    // Estado para controlar o menu de escolha (Câmera ou Galeria)
+    var mostrarOpcoesFoto by remember { mutableStateOf(false) }
+
     var mercado by remember { mutableStateOf("") }
     val listaMercados = remember { mutableStateListOf("Cooper", "Komprão", "Fort Atacadista", "Angeloni", "Giassi", "Rancho Bom", "Outro") }
     var mercadoExpandido by remember { mutableStateOf(false) }
@@ -203,13 +207,43 @@ fun TelaCadastro(
             }
     }
 
+    // Diálogo para escolher entre Câmera e Galeria
+    if (mostrarOpcoesFoto) {
+        AlertDialog(
+            onDismissRequest = { mostrarOpcoesFoto = false },
+            title = { Text("Adicionar Imagem") },
+            text = { Text("Escolha a origem da imagem:") },
+            confirmButton = {
+                Button(onClick = {
+                    mostrarOpcoesFoto = false
+                    if (temPermissaoCamera) launcherCamera.launch(null)
+                    else launcherPermissao.launch(Manifest.permission.CAMERA)
+                }) {
+                    Icon(Icons.Default.CameraAlt, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Câmera")
+                }
+            },
+            dismissButton = {
+                Button(onClick = {
+                    mostrarOpcoesFoto = false
+                    launcherGaleria.launch("image/*")
+                }) {
+                    Icon(Icons.Default.Image, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Galeria")
+                }
+            }
+        )
+    }
+
     Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
         Text(if(produtoPreenchido != null) "Novo Preço" else "Cadastrar", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(modifier = Modifier.height(16.dp))
 
         if (produtoPreenchido == null) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // --- BOTÃO DE SCAN COM IMAGEM ---
+                // BOTÃO 1: SCAN (Com imagem)
                 Button(
                     onClick = {
                         if (temPermissaoCamera) {
@@ -226,35 +260,25 @@ fun TelaCadastro(
                         } else { launcherPermissao.launch(Manifest.permission.CAMERA) }
                     },
                     modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent), // Fundo transparente para a imagem aparecer bem
-                    contentPadding = PaddingValues(0.dp) // Sem bordas internas
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Image(
-                        painter = painterResource(id = R.drawable.scancode), // AQUI ESTÁ A IMAGEM!
+                        painter = painterResource(id = R.drawable.scancode),
                         contentDescription = "Scan",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
                     )
                 }
 
+                // BOTÃO 2: FOTO (Que abre as opções de Câmera/Galeria)
                 Button(
-                    onClick = {
-                        if (temPermissaoCamera) launcherCamera.launch(null)
-                        else launcherPermissao.launch(Manifest.permission.CAMERA)
-                    },
+                    onClick = { mostrarOpcoesFoto = true },
                     modifier = Modifier.weight(1f).height(50.dp),
                     contentPadding = PaddingValues(4.dp)
                 ) {
                     Icon(Icons.Default.CameraAlt, null)
-                    Text("Foto", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
-                }
-                Button(
-                    onClick = { launcherGaleria.launch("image/*") },
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    contentPadding = PaddingValues(4.dp)
-                ) {
-                    Icon(Icons.Default.Image, null)
-                    Text("Galeria", fontSize = 12.sp, modifier = Modifier.padding(start = 4.dp))
+                    Text("Foto/Galeria", fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
                 }
             }
 
