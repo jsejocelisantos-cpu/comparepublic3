@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Search
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import com.example.compare.R
 import com.example.compare.model.ProdutoPreco
@@ -240,19 +242,17 @@ fun TelaCadastro(
         Spacer(modifier = Modifier.height(16.dp))
 
         if (produtoPreenchido == null) {
-            // AQUI ESTÁ A MUDANÇA PRINCIPAL
             Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically // Centraliza verticalmente o botão pequeno com a imagem grande
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. IMAGEM DO SCANNER (AGORA MAIOR E CLICÁVEL DIRETAMENTE)
                 Image(
                     painter = painterResource(id = R.drawable.scancode),
                     contentDescription = "Scan",
                     modifier = Modifier
                         .weight(1f)
-                        .height(100.dp) // Aumentado para 100dp
-                        .clickable { // Clicável diretamente na imagem
+                        .height(100.dp)
+                        .clickable {
                             if (temPermissaoCamera) {
                                 scanner.startScan().addOnSuccessListener { barcode ->
                                     val rawValue = barcode.rawValue
@@ -266,13 +266,12 @@ fun TelaCadastro(
                                 }
                             } else { launcherPermissao.launch(Manifest.permission.CAMERA) }
                         },
-                    contentScale = ContentScale.Fit // Mantém a proporção correta
+                    contentScale = ContentScale.Fit
                 )
 
-                // 2. BOTÃO FOTO/GALERIA
                 Button(
                     onClick = { mostrarOpcoesFoto = true },
-                    modifier = Modifier.weight(1f).height(50.dp), // Mantém altura padrão
+                    modifier = Modifier.weight(1f).height(50.dp),
                     contentPadding = PaddingValues(4.dp)
                 ) {
                     Icon(Icons.Default.CameraAlt, null)
@@ -333,19 +332,44 @@ fun TelaCadastro(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
         )
 
+        // --- CAMPO MERCADO COM AUTOCOMPLETE ---
         Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            // Filtra a lista com base no que foi digitado
+            val mercadosFiltrados = if (mercado.isBlank()) listaMercados else listaMercados.filter { it.contains(mercado, ignoreCase = true) }
+
             OutlinedTextField(
                 value = mercado,
-                onValueChange = { mercado = it },
+                onValueChange = {
+                    mercado = it
+                    mercadoExpandido = true // Abre o menu ao digitar
+                },
                 label = { Text("Mercado") },
-                trailingIcon = { Icon(Icons.Default.Add, null, Modifier.clickable { mercadoExpandido = true }) },
+                trailingIcon = {
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = "Expandir",
+                        Modifier.clickable { mercadoExpandido = !mercadoExpandido }
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
             )
-            DropdownMenu(expanded = mercadoExpandido, onDismissRequest = { mercadoExpandido = false }) {
-                listaMercados.forEach { m ->
-                    DropdownMenuItem(text = { Text(m) }, onClick = { mercado = m; mercadoExpandido = false })
+
+            DropdownMenu(
+                expanded = mercadoExpandido && mercadosFiltrados.isNotEmpty(),
+                onDismissRequest = { mercadoExpandido = false },
+                properties = PopupProperties(focusable = false), // Importante: Permite digitar sem fechar o menu
+                modifier = Modifier.fillMaxWidth(0.9f)
+            ) {
+                mercadosFiltrados.forEach { m ->
+                    DropdownMenuItem(
+                        text = { Text(m) },
+                        onClick = {
+                            mercado = m
+                            mercadoExpandido = false
+                        }
+                    )
                 }
             }
         }
