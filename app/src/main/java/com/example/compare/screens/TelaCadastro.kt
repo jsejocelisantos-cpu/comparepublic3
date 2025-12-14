@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width // <--- O IMPORT QUE FALTAVA
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -144,7 +144,6 @@ fun TelaCadastro(
     var metodo by remember { mutableStateOf("MANUAL") }
     var fotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    // Estado para controlar o menu de escolha (Câmera ou Galeria)
     var mostrarOpcoesFoto by remember { mutableStateOf(false) }
 
     var mercado by remember { mutableStateOf("") }
@@ -207,7 +206,6 @@ fun TelaCadastro(
             }
     }
 
-    // Diálogo para escolher entre Câmera e Galeria
     if (mostrarOpcoesFoto) {
         AlertDialog(
             onDismissRequest = { mostrarOpcoesFoto = false },
@@ -242,39 +240,39 @@ fun TelaCadastro(
         Spacer(modifier = Modifier.height(16.dp))
 
         if (produtoPreenchido == null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // BOTÃO 1: SCAN (Com imagem)
-                Button(
-                    onClick = {
-                        if (temPermissaoCamera) {
-                            scanner.startScan().addOnSuccessListener { barcode ->
-                                val rawValue = barcode.rawValue
-                                if (rawValue != null && !rawValue.contains("/")) {
-                                    codigoBarras = rawValue
-                                    metodo = "SCANNER"
-                                    buscarProdutoPorCodigo(rawValue)
-                                } else {
-                                    Toast.makeText(context, "Escaneie apenas códigos de barras!", Toast.LENGTH_LONG).show()
+            // AQUI ESTÁ A MUDANÇA PRINCIPAL
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically // Centraliza verticalmente o botão pequeno com a imagem grande
+            ) {
+                // 1. IMAGEM DO SCANNER (AGORA MAIOR E CLICÁVEL DIRETAMENTE)
+                Image(
+                    painter = painterResource(id = R.drawable.scancode),
+                    contentDescription = "Scan",
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(100.dp) // Aumentado para 100dp
+                        .clickable { // Clicável diretamente na imagem
+                            if (temPermissaoCamera) {
+                                scanner.startScan().addOnSuccessListener { barcode ->
+                                    val rawValue = barcode.rawValue
+                                    if (rawValue != null && !rawValue.contains("/")) {
+                                        codigoBarras = rawValue
+                                        metodo = "SCANNER"
+                                        buscarProdutoPorCodigo(rawValue)
+                                    } else {
+                                        Toast.makeText(context, "Escaneie apenas códigos de barras!", Toast.LENGTH_LONG).show()
+                                    }
                                 }
-                            }
-                        } else { launcherPermissao.launch(Manifest.permission.CAMERA) }
-                    },
-                    modifier = Modifier.weight(1f).height(50.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.scancode),
-                        contentDescription = "Scan",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit
-                    )
-                }
+                            } else { launcherPermissao.launch(Manifest.permission.CAMERA) }
+                        },
+                    contentScale = ContentScale.Fit // Mantém a proporção correta
+                )
 
-                // BOTÃO 2: FOTO (Que abre as opções de Câmera/Galeria)
+                // 2. BOTÃO FOTO/GALERIA
                 Button(
                     onClick = { mostrarOpcoesFoto = true },
-                    modifier = Modifier.weight(1f).height(50.dp),
+                    modifier = Modifier.weight(1f).height(50.dp), // Mantém altura padrão
                     contentPadding = PaddingValues(4.dp)
                 ) {
                     Icon(Icons.Default.CameraAlt, null)
