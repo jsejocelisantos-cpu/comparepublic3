@@ -34,8 +34,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.compare.model.Usuario
+import com.google.firebase.firestore.FirebaseFirestore
+import java.util.Date
 
-// --- 4. TELA DE LOGIN ---
 @Composable
 fun TelaLogin(onLoginSucesso: (String, Boolean) -> Unit) {
     var nome by remember { mutableStateOf("") }
@@ -43,6 +45,7 @@ fun TelaLogin(onLoginSucesso: (String, Boolean) -> Unit) {
     var erro by remember { mutableStateOf("") }
     var senhaVisivel by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
+    val db = FirebaseFirestore.getInstance() // Para salvar o usuário
 
     val isAdminMode = nome.trim().equals("admin", ignoreCase = true)
 
@@ -105,6 +108,10 @@ fun TelaLogin(onLoginSucesso: (String, Boolean) -> Unit) {
                         erro = "Senha incorreta!"
                     }
                 } else if (nome.isNotBlank()) {
+                    // --- SALVA O USUÁRIO NO BANCO DE DADOS ---
+                    val usuarioNovo = Usuario(nome = nome, ultimoAcesso = Date())
+                    db.collection("usuarios").document(nome).set(usuarioNovo)
+
                     onLoginSucesso(nome, false)
                 } else {
                     erro = "Digite seu nome para entrar."

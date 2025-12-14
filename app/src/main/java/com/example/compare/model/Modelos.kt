@@ -2,7 +2,8 @@ package com.example.compare.model
 
 import java.util.Date
 
-// --- 1. MODELO DE DADOS ---
+// --- MODELOS DE DADOS ---
+
 data class ProdutoPreco(
     val id: String = "",
     val codigoBarras: String = "",
@@ -19,11 +20,23 @@ data class ProdutoPreco(
     val chatComentarios: List<String> = emptyList()
 )
 
-// ADICIONE ESTA CLASSE QUE ESTAVA FALTANDO:
 data class DadosMercado(
     val id: String = "",
     val nome: String = "",
     val endereco: String = "",
     val telefone: String = "",
     val horario: String = ""
+)
+
+// --- NOVAS CLASSES PARA O ADMIN ---
+data class Usuario(
+    val nome: String = "",
+    val ultimoAcesso: Date = Date()
+)
+
+data class MensagemSuporte(
+    val id: String = "",
+    val usuario: String = "",
+    val msg: String = "",
+    val data: Date = Date()
 )

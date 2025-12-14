@@ -27,8 +27,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.compare.model.DadosMercado
+import com.example.compare.model.MensagemSuporte
 import com.example.compare.model.ProdutoPreco
-import com.example.compare.utils.* import com.google.firebase.firestore.DocumentSnapshot
+import com.example.compare.model.Usuario
+import com.example.compare.utils.*
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import java.util.Date
@@ -38,7 +41,7 @@ import java.util.Date
 fun TelaHome(
     usuarioLogado: String,
     isAdmin: Boolean,
-    mostrarBannerBoasVindas: Boolean, // O NOME CORRETO É ESTE AQUI
+    mostrarBannerBoasVindas: Boolean,
     onFecharBanner: () -> Unit,
     estadoAtual: String,
     cidadeAtual: String,
@@ -239,12 +242,32 @@ fun TelaHome(
         }
     }
 
-    // AQUI ESTAVA O ERRO: AGORA USAMOS O NOME CORRETO
     if (mostrarBannerBoasVindas) {
         AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
     }
     if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
-    if (mostrarSuporte) { var msg by remember { mutableStateOf("") }; AlertDialog(onDismissRequest = { mostrarSuporte = false }, title = { Text("Suporte") }, text = { OutlinedTextField(value = msg, onValueChange = { msg = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if(msg.isNotBlank()) { db.collection("suporte").add(hashMapOf("usuario" to usuarioLogado, "msg" to msg)); mostrarSuporte = false } }) { Text("Enviar") } }, dismissButton = { TextButton(onClick = { mostrarSuporte = false }) { Text("Cancelar") } }) }
+
+    // --- DIÁLOGO DE SUPORTE ATUALIZADO (Salva com Data) ---
+    if (mostrarSuporte) {
+        var msg by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { mostrarSuporte = false },
+            title = { Text("Suporte") },
+            text = { OutlinedTextField(value = msg, onValueChange = { msg = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = {
+                Button(onClick = {
+                    if(msg.isNotBlank()) {
+                        // Agora salvamos como objeto para ter a data
+                        val suporteMsg = MensagemSuporte(usuario = usuarioLogado, msg = msg, data = Date())
+                        db.collection("suporte").add(suporteMsg)
+                        mostrarSuporte = false
+                    }
+                }) { Text("Enviar") }
+            },
+            dismissButton = { TextButton(onClick = { mostrarSuporte = false }) { Text("Cancelar") } }
+        )
+    }
+
     if (mostrarPainelAdmin) DialogoAdmin(onDismiss = { mostrarPainelAdmin = false })
 
     if (grupoSelecionadoParaDetalhes != null) {
@@ -264,49 +287,123 @@ fun TelaHome(
     }
 }
 
-// --- DIALOGOS ---
-
+// --- NOVO PAINEL ADMIN ---
 @Composable
 fun DialogoAdmin(onDismiss: () -> Unit) {
     var aba by remember { mutableStateOf(0) }
     var novoBanimento by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
 
+    // Listas para as novas abas
+    var listaUsuarios by remember { mutableStateOf(emptyList<Usuario>()) }
+    var listaSuporte by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
+    var carregando by remember { mutableStateOf(false) }
+
+    // Carrega dados quando muda a aba
+    LaunchedEffect(aba) {
+        carregando = true
+        if (aba == 0) { // Aba Usuários
+            db.collection("usuarios").get().addOnSuccessListener { result ->
+                listaUsuarios = result.toObjects(Usuario::class.java)
+                carregando = false
+            }
+        } else if (aba == 1) { // Aba Suporte
+            db.collection("suporte")
+                .orderBy("data", Query.Direction.DESCENDING)
+                .get().addOnSuccessListener { result ->
+                    listaSuporte = result.toObjects(MensagemSuporte::class.java)
+                    carregando = false
+                }
+        } else {
+            carregando = false
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Painel Admin") },
         text = {
-            Column {
+            Column(modifier = Modifier.height(400.dp)) { // Altura fixa para caber a lista
                 TabRow(selectedTabIndex = aba) {
-                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Info") })
-                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Banir") })
+                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") })
+                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Suporte") })
+                    Tab(selected = aba == 2, onClick = { aba = 2 }, text = { Text("Banir") })
                 }
+
                 Spacer(modifier = Modifier.height(10.dp))
-                if (aba == 0) {
-                    Text("Gerencie mercados editando-os na lista de produtos.")
+
+                if (carregando) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 } else {
-                    OutlinedTextField(
-                        value = novoBanimento,
-                        onValueChange = { novoBanimento = it },
-                        label = { Text("Usuário para banir") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Button(
-                        onClick = {
-                            if(novoBanimento.isNotBlank()) {
-                                db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date()))
-                                novoBanimento = ""
+                    when(aba) {
+                        0 -> { // LISTA DE USUÁRIOS
+                            Text("Total: ${listaUsuarios.size} usuários ativos", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                            LazyColumn {
+                                items(listaUsuarios) { user ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White)
+                                            Text("Último acesso: ${formatarData(user.ultimoAcesso)}", fontSize = 12.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) { Text("BANIR") }
+                        }
+                        1 -> { // MENSAGENS DE SUPORTE
+                            if(listaSuporte.isEmpty()) Text("Nenhuma mensagem.")
+                            LazyColumn {
+                                items(listaSuporte) { msg ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF333333))
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                                Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan)
+                                                Text(formatarData(msg.data), fontSize = 10.sp, color = Color.Gray)
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(msg.msg, color = Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        2 -> { // BANIR
+                            OutlinedTextField(
+                                value = novoBanimento,
+                                onValueChange = { novoBanimento = it },
+                                label = { Text("Usuário para banir") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    if(novoBanimento.isNotBlank()) {
+                                        db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date()))
+                                        novoBanimento = ""
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                            ) { Text("BANIR") }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
                 }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fechar") } }
     )
 }
+
+// --- OUTROS DIÁLOGOS (Localização e Mercado) MANTIDOS IGUAIS ---
 
 @Composable
 fun DialogoRankingDetalhes(
@@ -480,7 +577,6 @@ fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> 
     )
 }
 
-// ESTA ERA A FUNÇÃO QUE FALTAVA:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> Unit) {
@@ -584,5 +680,3 @@ fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> U
         }
     )
 }
-
-
