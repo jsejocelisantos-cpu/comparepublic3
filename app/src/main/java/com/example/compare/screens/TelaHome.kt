@@ -1,8 +1,8 @@
 package com.example.compare.screens
 
+import androidx.activity.compose.BackHandler
 import android.app.Activity
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,14 +26,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.zIndex // <--- ESTE IMPORT RESOLVE O ERRO VERMELHO
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.compare.model.DadosMercado
@@ -64,6 +67,10 @@ fun TelaHome(
     var textoBusca by remember { mutableStateOf("") }
     val todosProdutos = remember { mutableStateListOf<ProdutoPreco>() }
 
+    // --- ESTADOS PARA O AUTOCOMPLETE ---
+    var sugestoesBusca by remember { mutableStateOf(emptyList<String>()) }
+    var expandirSugestoes by remember { mutableStateOf(false) }
+
     var grupoSelecionadoParaDetalhes by remember { mutableStateOf<List<ProdutoPreco>?>(null) }
     var carregandoDetalhes by remember { mutableStateOf(false) }
     var mostrarDialogoFiltro by remember { mutableStateOf(false) }
@@ -81,15 +88,40 @@ fun TelaHome(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // --- LÓGICA DE VOLTAR (DUPLO CLIQUE PARA SAIR) ---
+    // --- LÓGICA DE AUTOCOMPLETE (DEBOUNCE) ---
+    LaunchedEffect(textoBusca) {
+        if (textoBusca.length >= 3) {
+            delay(500)
+
+            val termo = textoBusca.lowercase()
+            db.collection("ofertas")
+                .whereGreaterThanOrEqualTo("nomePesquisa", termo)
+                .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
+                .limit(5)
+                .get()
+                .addOnSuccessListener { res ->
+                    val nomes = res.documents.mapNotNull { it.getString("nomeProduto") }.distinct()
+                    if (nomes.isNotEmpty()) {
+                        sugestoesBusca = nomes
+                        expandirSugestoes = true
+                    } else {
+                        expandirSugestoes = false
+                    }
+                }
+        } else {
+            expandirSugestoes = false
+        }
+    }
+
+    // --- LÓGICA DE VOLTAR ---
     var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
 
     BackHandler(enabled = true) {
-        // 1. Se estiver com busca ativa, limpa a busca primeiro
         if (textoBusca.isNotEmpty()) {
             textoBusca = ""
-            // Precisamos recarregar a lista padrão manualmente aqui
-            carregandoMais = true // Trava para evitar cliques múltiplos
+            expandirSugestoes = false
+
+            carregandoMais = true
             todosProdutos.clear()
             ultimoDocumento = null
             temMais = true
@@ -113,24 +145,22 @@ fun TelaHome(
                 .addOnFailureListener { carregandoMais = false }
 
         } else if (grupoSelecionadoParaDetalhes != null) {
-            // 2. Se estiver vendo detalhes, fecha os detalhes
             grupoSelecionadoParaDetalhes = null
         } else {
-            // 3. Se estiver na home limpa, lógica do duplo clique
             if (doubleBackToExitPressedOnce) {
-                (context as? Activity)?.finish() // Sai do App
+                (context as? Activity)?.finish()
             } else {
                 doubleBackToExitPressedOnce = true
                 Toast.makeText(context, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
                 scope.launch {
-                    delay(2000) // Reseta após 2 segundos
+                    delay(2000)
                     doubleBackToExitPressedOnce = false
                 }
             }
         }
     }
 
-    // --- MONITOR DE ATIVIDADE (30 SEGUNDOS) ---
+    // --- MONITOR DE ATIVIDADE ---
     LaunchedEffect(usuarioLogado) {
         if (usuarioLogado != "Administrador" && usuarioLogado != "anonimo" && usuarioLogado.isNotBlank()) {
             while (true) {
@@ -193,6 +223,7 @@ fun TelaHome(
     LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
 
     fun buscarNoBanco(onConcluido: () -> Unit = {}) {
+        expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
         carregandoMais = true
         todosProdutos.clear()
@@ -202,7 +233,7 @@ fun TelaHome(
         db.collection("ofertas")
             .whereGreaterThanOrEqualTo("nomePesquisa", termoBusca)
             .whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff")
-            .limit(50)
+            .limit(20)
             .get()
             .addOnSuccessListener { res ->
                 for(doc in res) {
@@ -288,16 +319,45 @@ fun TelaHome(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Column {
-                    OutlinedTextField(
-                        value = textoBusca,
-                        onValueChange = { textoBusca = it },
-                        label = { Text("Buscar produto...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        modifier = Modifier.fillMaxWidth().padding(8.dp),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { buscarNoBanco(); focusManager.clearFocus() })
-                    )
+                    // --- ÁREA DE PESQUISA COM AUTOCOMPLETE ---
+                    // Adicionei zIndex(1f) para o menu flutuar sobre a lista
+                    Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
+                        OutlinedTextField(
+                            value = textoBusca,
+                            onValueChange = {
+                                textoBusca = it
+                            },
+                            label = { Text("Buscar produto...") },
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = {
+                                expandirSugestoes = false
+                                buscarNoBanco()
+                                focusManager.clearFocus()
+                            })
+                        )
+
+                        DropdownMenu(
+                            expanded = expandirSugestoes,
+                            onDismissRequest = { expandirSugestoes = false },
+                            modifier = Modifier.fillMaxWidth(0.95f),
+                            properties = PopupProperties(focusable = false)
+                        ) {
+                            sugestoesBusca.forEach { nomeSugestao ->
+                                DropdownMenuItem(
+                                    text = { Text(nomeSugestao) },
+                                    onClick = {
+                                        textoBusca = nomeSugestao
+                                        expandirSugestoes = false
+                                        buscarNoBanco()
+                                        focusManager.clearFocus()
+                                    }
+                                )
+                            }
+                        }
+                    }
 
                     val grupos = todosProdutos.groupBy { if (it.codigoBarras.isNotEmpty()) it.codigoBarras else it.nomeProduto }
 
