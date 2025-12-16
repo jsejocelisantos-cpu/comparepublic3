@@ -7,13 +7,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox // IMPORTANTE: Novo componente
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,6 +40,7 @@ import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import kotlinx.coroutines.delay
 import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,17 +75,29 @@ fun TelaHome(
     val db = FirebaseFirestore.getInstance()
     val focusManager = LocalFocusManager.current
 
-    // --- ESTADO DO PULL TO REFRESH (CORRIGIDO) ---
-    // Agora controlamos o estado manualmente
+    // --- MONITOR DE ATIVIDADE (30 SEGUNDOS) ---
+    LaunchedEffect(usuarioLogado) {
+        if (usuarioLogado != "Administrador" && usuarioLogado != "anonimo" && usuarioLogado.isNotBlank()) {
+            while (true) {
+                try {
+                    db.collection("usuarios").document(usuarioLogado)
+                        .update("ultimoAcesso", Date())
+                        .addOnFailureListener {
+                            db.collection("usuarios").document(usuarioLogado)
+                                .set(Usuario(nome = usuarioLogado, ultimoAcesso = Date()))
+                        }
+                } catch (e: Exception) { }
+                delay(30000) // Envia sinal a cada 30 segundos
+            }
+        }
+    }
+
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // Atualizei a função para aceitar um "callback" (onConcluido)
     fun carregarProdutos(resetar: Boolean = false, onConcluido: () -> Unit = {}) {
-        if (carregandoMais) {
-            onConcluido() // Se já estava carregando, avisa que "terminou" (ou ignorou)
-            return
-        }
+        if (carregandoMais) { onConcluido(); return }
         carregandoMais = true
+
         if (resetar) {
             todosProdutos.clear()
             ultimoDocumento = null
@@ -100,7 +115,6 @@ fun TelaHome(
         query.get().addOnSuccessListener { result ->
             if (!result.isEmpty) {
                 if (resetar) ultimoDocumento = result.documents[result.size() - 1]
-
                 for (doc in result) {
                     try {
                         val produto = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
@@ -114,18 +128,17 @@ fun TelaHome(
                 temMais = false
             }
             carregandoMais = false
-            onConcluido() // Avisa que terminou
+            onConcluido()
         }.addOnFailureListener {
             carregandoMais = false
-            onConcluido() // Avisa que terminou (mesmo com erro)
+            onConcluido()
         }
     }
 
+    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
+
     fun buscarNoBanco(onConcluido: () -> Unit = {}) {
-        if(textoBusca.isBlank()) {
-            carregarProdutos(resetar = true, onConcluido = onConcluido)
-            return
-        }
+        if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
         carregandoMais = true
         todosProdutos.clear()
 
@@ -153,7 +166,6 @@ fun TelaHome(
             }
     }
 
-    // --- ATUALIZAR AO VOLTAR PARA A TELA (EX: DEPOIS DE CADASTRAR) ---
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -166,9 +178,6 @@ fun TelaHome(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
-    // Carregamento inicial ao mudar cidade
-    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
         carregandoDetalhes = true
@@ -213,19 +222,13 @@ fun TelaHome(
             FloatingActionButton(onClick = { onIrCadastro(null) }) { Icon(Icons.Default.Add, "Adicionar") }
         }
     ) { padding ->
-
-        // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL: PullToRefreshBox ---
-        // Ele envolve o conteúdo e gerencia o gesto de puxar
         PullToRefreshBox(
             modifier = Modifier.padding(padding),
             isRefreshing = isRefreshing,
             onRefresh = {
-                isRefreshing = true // Ativa o ícone de carregando
-                if (textoBusca.isNotBlank()) {
-                    buscarNoBanco { isRefreshing = false } // Desativa quando terminar
-                } else {
-                    carregarProdutos(resetar = true) { isRefreshing = false } // Desativa quando terminar
-                }
+                isRefreshing = true
+                if (textoBusca.isNotBlank()) buscarNoBanco { isRefreshing = false }
+                else carregarProdutos(resetar = true) { isRefreshing = false }
             }
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -278,7 +281,7 @@ fun TelaHome(
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
                                             Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                            Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4)) // Azul Claro
+                                            Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
                                         }
                                     }
                                 }
@@ -316,36 +319,26 @@ fun TelaHome(
         DialogoRankingDetalhes(
             grupoOfertas = grupoSelecionadoParaDetalhes!!, usuarioLogado = usuarioLogado, isAdmin = isAdmin,
             onDismiss = { grupoSelecionadoParaDetalhes = null }, onIrCadastro = onIrCadastro,
-
-            // --- GATILHOS: Atualiza ao modificar algo ---
             onDelete = { id ->
-                db.collection("ofertas").document(id).delete().addOnSuccessListener {
-                    carregarProdutos(resetar = true)
-                }
+                db.collection("ofertas").document(id).delete().addOnSuccessListener { carregarProdutos(resetar = true) }
                 grupoSelecionadoParaDetalhes = grupoSelecionadoParaDetalhes!!.filter { it.id != id }
                 if(grupoSelecionadoParaDetalhes!!.isEmpty()) grupoSelecionadoParaDetalhes = null
             },
             onUpdate = { nova ->
-                db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener {
-                    carregarProdutos(resetar = true)
-                }
+                db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener { carregarProdutos(resetar = true) }
                 grupoSelecionadoParaDetalhes = null
             },
             onNovoComentario = { id, txt ->
                 if(!temOfensa(txt)) {
                     val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
-                    if(target != null) {
-                        db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt")
-                            .addOnSuccessListener { carregarProdutos(resetar = true) }
-                    }
+                    if(target != null) db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { carregarProdutos(resetar = true) }
                 }
             },
             onApagarComentario = { id, txt ->
                 val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
                 if(target != null) {
                     val nova = target.chatComentarios.toMutableList().apply { remove(txt) }
-                    db.collection("ofertas").document(id).update("chatComentarios", nova)
-                        .addOnSuccessListener { carregarProdutos(resetar = true) }
+                    db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) }
                 }
             },
             onEditarComentario = { id, old, newTxt ->
@@ -357,8 +350,7 @@ fun TelaHome(
                         if(idx != -1) {
                             val autor = old.split(": ", limit=2)[0]
                             nova[idx] = "$autor: $newTxt"
-                            db.collection("ofertas").document(id).update("chatComentarios", nova)
-                                .addOnSuccessListener { carregarProdutos(resetar = true) }
+                            db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) }
                         }
                     }
                 }
@@ -371,10 +363,7 @@ fun TelaHome(
     }
 }
 
-// ... AS OUTRAS FUNÇÕES (DialogoSuporteUsuario, DialogoAdmin, etc.) CONTINUAM IGUAIS ABAIXO ...
-// Mantenha o restante do arquivo igual ao que você já tinha.
-// Se precisar, posso reenviar o arquivo completo com as funções auxiliares também.
-
+// --- FUNÇÃO QUE FALTAVA (DialogoSuporteUsuario) ---
 @Composable
 fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -446,31 +435,40 @@ fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
     )
 }
 
+// --- PAINEL ADMIN ATUALIZADO (ONLINE + HISTÓRICO) ---
 @Composable
 fun DialogoAdmin(onDismiss: () -> Unit) {
     var aba by remember { mutableStateOf(0) }
     var novoBanimento by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
+
     var listaUsuarios by remember { mutableStateOf(emptyList<Usuario>()) }
     var listaSuporte by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
     var carregando by remember { mutableStateOf(false) }
+
     var mensagemParaResponder by remember { mutableStateOf<MensagemSuporte?>(null) }
     var textoResposta by remember { mutableStateOf("") }
 
     LaunchedEffect(aba, mensagemParaResponder) {
         carregando = true
-        if (aba == 0) {
+        if (aba == 0 || aba == 1) { // Usuários
             db.collection("usuarios").get().addOnSuccessListener { result ->
-                listaUsuarios = result.toObjects(Usuario::class.java)
+                listaUsuarios = result.toObjects(Usuario::class.java).sortedByDescending { it.ultimoAcesso }
                 carregando = false
             }
-        } else if (aba == 1) {
+        } else if (aba == 2) { // Suporte
             db.collection("suporte").orderBy("data", Query.Direction.DESCENDING).get().addOnSuccessListener { result ->
                 listaSuporte = result.documents.map { doc -> doc.toObject(MensagemSuporte::class.java)!!.copy(id = doc.id) }
                 carregando = false
             }
-        } else { carregando = false }
+        } else {
+            carregando = false
+        }
     }
+
+    // Filtra usuários online (acesso nos últimos 60s)
+    val tempoAgora = Date().time
+    val usuariosOnline = listaUsuarios.filter { (tempoAgora - it.ultimoAcesso.time) < 60000 }
 
     if (mensagemParaResponder != null) {
         AlertDialog(
@@ -487,14 +485,86 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
         title = { Text("Painel Admin") },
         text = {
             Column(modifier = Modifier.height(400.dp)) {
-                TabRow(selectedTabIndex = aba) { Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") }); Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Suporte") }); Tab(selected = aba == 2, onClick = { aba = 2 }, text = { Text("Banir") }) }
+                ScrollableTabRow(selectedTabIndex = aba, edgePadding = 0.dp) {
+                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Online") })
+                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Histórico") })
+                    Tab(selected = aba == 2, onClick = { aba = 2 }, text = { Text("Suporte") })
+                    Tab(selected = aba == 3, onClick = { aba = 3 }, text = { Text("Banir") })
+                }
+
                 Spacer(modifier = Modifier.height(10.dp))
-                if (carregando) { Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
-                else {
+
+                if (carregando) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                } else {
                     when(aba) {
-                        0 -> { Text("Total: ${listaUsuarios.size} usuários ativos", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)); LazyColumn { items(listaUsuarios) { user -> Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))) { Column(modifier = Modifier.padding(8.dp)) { Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White); Text("Último acesso: ${formatarData(user.ultimoAcesso)}", fontSize = 12.sp, color = Color.Gray) } } } } }
-                        1 -> { if(listaSuporte.isEmpty()) Text("Nenhuma mensagem."); LazyColumn { items(listaSuporte) { msg -> Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { mensagemParaResponder = msg }, colors = CardDefaults.cardColors(containerColor = if(msg.resposta.isEmpty()) Color(0xFF4A4A4A) else Color(0xFF2E7D32))) { Column(modifier = Modifier.padding(8.dp)) { Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) { Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan); Text(formatarData(msg.data), fontSize = 10.sp, color = Color.LightGray) }; Spacer(modifier = Modifier.height(4.dp)); Text(msg.msg, color = Color.White); if (msg.resposta.isNotEmpty()) { Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp)); Text("Resp: ${msg.resposta}", color = Color.Yellow, fontSize = 12.sp) } else { Text("Toque para responder", fontSize = 10.sp, color = Color.LightGray, modifier = Modifier.padding(top = 4.dp)) } } } } } }
-                        2 -> { OutlinedTextField(value = novoBanimento, onValueChange = { novoBanimento = it }, label = { Text("Usuário para banir") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp)); Button(onClick = { if(novoBanimento.isNotBlank()) { db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date())); novoBanimento = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("BANIR") }; Spacer(modifier = Modifier.height(8.dp)); Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray) }
+                        0 -> { // ONLINE (Verde)
+                            Text("Online Agora: ${usuariosOnline.size}", fontWeight = FontWeight.Bold, color = Color(0xFF00C853), modifier = Modifier.padding(bottom = 8.dp))
+                            LazyColumn {
+                                items(usuariosOnline) { user ->
+                                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))) {
+                                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF00C853))) // Bolinha Verde
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White)
+                                                Text("Visto agora", fontSize = 10.sp, color = Color.LightGray)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        1 -> { // HISTÓRICO (Cinza)
+                            Text("Total Registrados: ${listaUsuarios.size}", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                            LazyColumn {
+                                items(listaUsuarios) { user ->
+                                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))) {
+                                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(Color.Gray)) // Bolinha Cinza
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White)
+                                                Text("Último acesso: ${formatarData(user.ultimoAcesso)}", fontSize = 10.sp, color = Color.Gray)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        2 -> { // SUPORTE
+                            if(listaSuporte.isEmpty()) Text("Nenhuma mensagem.")
+                            LazyColumn {
+                                items(listaSuporte) { msg ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { mensagemParaResponder = msg },
+                                        colors = CardDefaults.cardColors(containerColor = if(msg.resposta.isEmpty()) Color(0xFF4A4A4A) else Color(0xFF2E7D32))
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                                                Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan)
+                                                Text(formatarData(msg.data), fontSize = 10.sp, color = Color.LightGray)
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(msg.msg, color = Color.White)
+                                            if (msg.resposta.isNotEmpty()) {
+                                                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp))
+                                                Text("Resp: ${msg.resposta}", color = Color.Yellow, fontSize = 12.sp)
+                                            } else {
+                                                Text("Toque para responder", fontSize = 10.sp, color = Color.LightGray, modifier = Modifier.padding(top = 4.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        3 -> { // BANIR
+                            OutlinedTextField(value = novoBanimento, onValueChange = { novoBanimento = it }, label = { Text("Usuário para banir") }, modifier = Modifier.fillMaxWidth())
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(onClick = { if(novoBanimento.isNotBlank()) { db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date())); novoBanimento = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("BANIR") }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray)
+                        }
                     }
                 }
             }
