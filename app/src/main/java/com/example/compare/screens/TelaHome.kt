@@ -13,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox // IMPORTANTE: Novo componente
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,11 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.compare.model.DadosMercado
 import com.example.compare.model.MensagemSuporte
 import com.example.compare.model.ProdutoPreco
@@ -68,8 +72,16 @@ fun TelaHome(
     val db = FirebaseFirestore.getInstance()
     val focusManager = LocalFocusManager.current
 
-    fun carregarProdutos(resetar: Boolean = false) {
-        if (carregandoMais) return
+    // --- ESTADO DO PULL TO REFRESH (CORRIGIDO) ---
+    // Agora controlamos o estado manualmente
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // Atualizei a função para aceitar um "callback" (onConcluido)
+    fun carregarProdutos(resetar: Boolean = false, onConcluido: () -> Unit = {}) {
+        if (carregandoMais) {
+            onConcluido() // Se já estava carregando, avisa que "terminou" (ou ignorou)
+            return
+        }
         carregandoMais = true
         if (resetar) {
             todosProdutos.clear()
@@ -81,13 +93,14 @@ fun TelaHome(
             .orderBy("data", Query.Direction.DESCENDING)
             .limit(20)
 
-        if (ultimoDocumento != null) {
+        if (ultimoDocumento != null && !resetar) {
             query = query.startAfter(ultimoDocumento!!)
         }
 
         query.get().addOnSuccessListener { result ->
             if (!result.isEmpty) {
-                ultimoDocumento = result.documents[result.size() - 1]
+                if (resetar) ultimoDocumento = result.documents[result.size() - 1]
+
                 for (doc in result) {
                     try {
                         val produto = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
@@ -101,18 +114,21 @@ fun TelaHome(
                 temMais = false
             }
             carregandoMais = false
-        }.addOnFailureListener { carregandoMais = false }
+            onConcluido() // Avisa que terminou
+        }.addOnFailureListener {
+            carregandoMais = false
+            onConcluido() // Avisa que terminou (mesmo com erro)
+        }
     }
 
-    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
-
-
-    fun buscarNoBanco() {
-        if(textoBusca.isBlank()) { carregarProdutos(resetar = true); return }
+    fun buscarNoBanco(onConcluido: () -> Unit = {}) {
+        if(textoBusca.isBlank()) {
+            carregarProdutos(resetar = true, onConcluido = onConcluido)
+            return
+        }
         carregandoMais = true
         todosProdutos.clear()
 
-        // CONVERTE PARA MINÚSCULO E BUSCA NO CAMPO 'nomePesquisa'
         val termoBusca = textoBusca.lowercase()
 
         db.collection("ofertas")
@@ -129,8 +145,30 @@ fun TelaHome(
                 }
                 carregandoMais = false
                 temMais = false
+                onConcluido()
+            }
+            .addOnFailureListener {
+                carregandoMais = false
+                onConcluido()
             }
     }
+
+    // --- ATUALIZAR AO VOLTAR PARA A TELA (EX: DEPOIS DE CADASTRAR) ---
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (textoBusca.isBlank()) {
+                    carregarProdutos(resetar = true)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // Carregamento inicial ao mudar cidade
+    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
         carregandoDetalhes = true
@@ -175,76 +213,90 @@ fun TelaHome(
             FloatingActionButton(onClick = { onIrCadastro(null) }) { Icon(Icons.Default.Add, "Adicionar") }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Column {
-                OutlinedTextField(
-                    value = textoBusca,
-                    onValueChange = { textoBusca = it },
-                    label = { Text("Buscar produto...") },
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { buscarNoBanco(); focusManager.clearFocus() })
-                )
 
-                val grupos = todosProdutos.groupBy { if (it.codigoBarras.isNotEmpty()) it.codigoBarras else it.nomeProduto }
+        // --- AQUI ESTÁ A CORREÇÃO PRINCIPAL: PullToRefreshBox ---
+        // Ele envolve o conteúdo e gerencia o gesto de puxar
+        PullToRefreshBox(
+            modifier = Modifier.padding(padding),
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true // Ativa o ícone de carregando
+                if (textoBusca.isNotBlank()) {
+                    buscarNoBanco { isRefreshing = false } // Desativa quando terminar
+                } else {
+                    carregarProdutos(resetar = true) { isRefreshing = false } // Desativa quando terminar
+                }
+            }
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column {
+                    OutlinedTextField(
+                        value = textoBusca,
+                        onValueChange = { textoBusca = it },
+                        label = { Text("Buscar produto...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        modifier = Modifier.fillMaxWidth().padding(8.dp),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { buscarNoBanco(); focusManager.clearFocus() })
+                    )
 
-                LazyColumn {
-                    items(grupos.keys.toList()) { chave ->
-                        val listaDoGrupo = grupos[chave] ?: emptyList()
-                        val melhorOferta = listaDoGrupo.minByOrNull { it.valor }
-                        val totalOfertas = listaDoGrupo.size
+                    val grupos = todosProdutos.groupBy { if (it.codigoBarras.isNotEmpty()) it.codigoBarras else it.nomeProduto }
 
-                        if (melhorOferta != null) {
-                            Card(
-                                modifier = Modifier
-                                    .padding(8.dp)
-                                    .fillMaxWidth()
-                                    .clickable { carregarDetalhesCompletos(melhorOferta) },
-                                elevation = CardDefaults.cardElevation(4.dp)
-                            ) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    val ofertaComFoto = listaDoGrupo.firstOrNull { it.fotoBase64.isNotEmpty() }
-                                    if(ofertaComFoto != null){
-                                        val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64)
-                                        if(bitmap != null) {
-                                            Image(
-                                                bitmap = bitmap.asImageBitmap(),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(50.dp).clip(RoundedCornerShape(4.dp)).background(Color.Gray),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            Spacer(modifier = Modifier.width(10.dp))
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(grupos.keys.toList()) { chave ->
+                            val listaDoGrupo = grupos[chave] ?: emptyList()
+                            val melhorOferta = listaDoGrupo.minByOrNull { it.valor }
+                            val totalOfertas = listaDoGrupo.size
+
+                            if (melhorOferta != null) {
+                                Card(
+                                    modifier = Modifier
+                                        .padding(8.dp)
+                                        .fillMaxWidth()
+                                        .clickable { carregarDetalhesCompletos(melhorOferta) },
+                                    elevation = CardDefaults.cardElevation(4.dp)
+                                ) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        val ofertaComFoto = listaDoGrupo.firstOrNull { it.fotoBase64.isNotEmpty() }
+                                        if(ofertaComFoto != null){
+                                            val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64)
+                                            if(bitmap != null) {
+                                                Image(
+                                                    bitmap = bitmap.asImageBitmap(),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(4.dp)).background(Color.Gray),
+                                                    contentScale = ContentScale.Crop
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                            }
                                         }
-                                    }
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(text = melhorOferta.nomeProduto, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Text(text = "Ver $totalOfertas preços", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                                        Text(text = "Atualizado: ${formatarData(melhorOferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                    }
-                                    Column(horizontalAlignment = Alignment.End) {
-                                        Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(
-                                            0xFF03A9F4
-                                        )
-                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(text = melhorOferta.nomeProduto, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                            Text(text = "Ver $totalOfertas preços", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                                            Text(text = "Atualizado: ${formatarData(melhorOferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                            Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4)) // Azul Claro
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    item {
-                        if (temMais) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                if (carregandoMais) CircularProgressIndicator() else Button(onClick = { carregarProdutos() }) { Text("Carregar mais") }
+                        item {
+                            if (temMais) {
+                                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    if (carregandoMais) CircularProgressIndicator() else Button(onClick = { carregarProdutos() }) { Text("Carregar mais") }
+                                }
                             }
                         }
                     }
                 }
-            }
-            if (carregandoDetalhes) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+
+                if (carregandoDetalhes) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                }
             }
         }
     }
@@ -254,7 +306,6 @@ fun TelaHome(
     }
     if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
 
-    // --- NOVO DIÁLOGO DE SUPORTE DO USUÁRIO (COM HISTÓRICO) ---
     if (mostrarSuporte) {
         DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
     }
@@ -265,11 +316,53 @@ fun TelaHome(
         DialogoRankingDetalhes(
             grupoOfertas = grupoSelecionadoParaDetalhes!!, usuarioLogado = usuarioLogado, isAdmin = isAdmin,
             onDismiss = { grupoSelecionadoParaDetalhes = null }, onIrCadastro = onIrCadastro,
-            onDelete = { id -> db.collection("ofertas").document(id).delete(); grupoSelecionadoParaDetalhes = grupoSelecionadoParaDetalhes!!.filter { it.id != id }; if(grupoSelecionadoParaDetalhes!!.isEmpty()) grupoSelecionadoParaDetalhes = null },
-            onUpdate = { nova -> db.collection("ofertas").document(nova.id).set(nova); grupoSelecionadoParaDetalhes = null },
-            onNovoComentario = { id, txt -> if(!temOfensa(txt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt") } },
-            onApagarComentario = { id, txt -> val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList().apply { remove(txt) }; db.collection("ofertas").document(id).update("chatComentarios", nova) } },
-            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) { val autor = old.split(": ", limit=2)[0]; nova[idx] = "$autor: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova) } } } }
+
+            // --- GATILHOS: Atualiza ao modificar algo ---
+            onDelete = { id ->
+                db.collection("ofertas").document(id).delete().addOnSuccessListener {
+                    carregarProdutos(resetar = true)
+                }
+                grupoSelecionadoParaDetalhes = grupoSelecionadoParaDetalhes!!.filter { it.id != id }
+                if(grupoSelecionadoParaDetalhes!!.isEmpty()) grupoSelecionadoParaDetalhes = null
+            },
+            onUpdate = { nova ->
+                db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener {
+                    carregarProdutos(resetar = true)
+                }
+                grupoSelecionadoParaDetalhes = null
+            },
+            onNovoComentario = { id, txt ->
+                if(!temOfensa(txt)) {
+                    val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                    if(target != null) {
+                        db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt")
+                            .addOnSuccessListener { carregarProdutos(resetar = true) }
+                    }
+                }
+            },
+            onApagarComentario = { id, txt ->
+                val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                if(target != null) {
+                    val nova = target.chatComentarios.toMutableList().apply { remove(txt) }
+                    db.collection("ofertas").document(id).update("chatComentarios", nova)
+                        .addOnSuccessListener { carregarProdutos(resetar = true) }
+                }
+            },
+            onEditarComentario = { id, old, newTxt ->
+                if(!temOfensa(newTxt)) {
+                    val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                    if(target != null) {
+                        val nova = target.chatComentarios.toMutableList()
+                        val idx = nova.indexOf(old)
+                        if(idx != -1) {
+                            val autor = old.split(": ", limit=2)[0]
+                            nova[idx] = "$autor: $newTxt"
+                            db.collection("ofertas").document(id).update("chatComentarios", nova)
+                                .addOnSuccessListener { carregarProdutos(resetar = true) }
+                        }
+                    }
+                }
+            }
         )
     }
 
@@ -278,7 +371,10 @@ fun TelaHome(
     }
 }
 
-// --- DIALOGO DE SUPORTE DO USUÁRIO (NOVA FUNÇÃO) ---
+// ... AS OUTRAS FUNÇÕES (DialogoSuporteUsuario, DialogoAdmin, etc.) CONTINUAM IGUAIS ABAIXO ...
+// Mantenha o restante do arquivo igual ao que você já tinha.
+// Se precisar, posso reenviar o arquivo completo com as funções auxiliares também.
+
 @Composable
 fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -350,24 +446,18 @@ fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
     )
 }
 
-// --- PAINEL ADMIN ATUALIZADO (COM RESPOSTA) ---
 @Composable
 fun DialogoAdmin(onDismiss: () -> Unit) {
     var aba by remember { mutableStateOf(0) }
     var novoBanimento by remember { mutableStateOf("") }
     val db = FirebaseFirestore.getInstance()
-
-    // Estados
     var listaUsuarios by remember { mutableStateOf(emptyList<Usuario>()) }
     var listaSuporte by remember { mutableStateOf(emptyList<MensagemSuporte>()) }
     var carregando by remember { mutableStateOf(false) }
-
-    // Estado para responder mensagem
     var mensagemParaResponder by remember { mutableStateOf<MensagemSuporte?>(null) }
     var textoResposta by remember { mutableStateOf("") }
 
-    // Carrega dados
-    LaunchedEffect(aba, mensagemParaResponder) { // Recarrega se fechar o dialog de resposta
+    LaunchedEffect(aba, mensagemParaResponder) {
         carregando = true
         if (aba == 0) {
             db.collection("usuarios").get().addOnSuccessListener { result ->
@@ -375,46 +465,19 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
                 carregando = false
             }
         } else if (aba == 1) {
-            db.collection("suporte")
-                .orderBy("data", Query.Direction.DESCENDING)
-                .get().addOnSuccessListener { result ->
-                    // IMPORTANTE: Mapear o ID do documento
-                    listaSuporte = result.documents.map { doc ->
-                        doc.toObject(MensagemSuporte::class.java)!!.copy(id = doc.id)
-                    }
-                    carregando = false
-                }
-        } else {
-            carregando = false
-        }
+            db.collection("suporte").orderBy("data", Query.Direction.DESCENDING).get().addOnSuccessListener { result ->
+                listaSuporte = result.documents.map { doc -> doc.toObject(MensagemSuporte::class.java)!!.copy(id = doc.id) }
+                carregando = false
+            }
+        } else { carregando = false }
     }
 
     if (mensagemParaResponder != null) {
         AlertDialog(
             onDismissRequest = { mensagemParaResponder = null },
             title = { Text("Responder ${mensagemParaResponder!!.usuario}") },
-            text = {
-                Column {
-                    Text("Dúvida: ${mensagemParaResponder!!.msg}", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = textoResposta,
-                        onValueChange = { textoResposta = it },
-                        label = { Text("Sua Resposta") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (textoResposta.isNotBlank()) {
-                        db.collection("suporte").document(mensagemParaResponder!!.id)
-                            .update(mapOf("resposta" to textoResposta, "dataResposta" to Date()))
-                        mensagemParaResponder = null
-                        textoResposta = ""
-                    }
-                }) { Text("Enviar Resposta") }
-            },
+            text = { Column { Text("Dúvida: ${mensagemParaResponder!!.msg}", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic); Spacer(modifier = Modifier.height(10.dp)); OutlinedTextField(value = textoResposta, onValueChange = { textoResposta = it }, label = { Text("Sua Resposta") }, modifier = Modifier.fillMaxWidth()) } },
+            confirmButton = { Button(onClick = { if (textoResposta.isNotBlank()) { db.collection("suporte").document(mensagemParaResponder!!.id).update(mapOf("resposta" to textoResposta, "dataResposta" to Date())); mensagemParaResponder = null; textoResposta = "" } }) { Text("Enviar Resposta") } },
             dismissButton = { TextButton(onClick = { mensagemParaResponder = null }) { Text("Cancelar") } }
         )
     }
@@ -424,83 +487,14 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
         title = { Text("Painel Admin") },
         text = {
             Column(modifier = Modifier.height(400.dp)) {
-                TabRow(selectedTabIndex = aba) {
-                    Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") })
-                    Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Suporte") })
-                    Tab(selected = aba == 2, onClick = { aba = 2 }, text = { Text("Banir") })
-                }
-
+                TabRow(selectedTabIndex = aba) { Tab(selected = aba == 0, onClick = { aba = 0 }, text = { Text("Usuários") }); Tab(selected = aba == 1, onClick = { aba = 1 }, text = { Text("Suporte") }); Tab(selected = aba == 2, onClick = { aba = 2 }, text = { Text("Banir") }) }
                 Spacer(modifier = Modifier.height(10.dp))
-
-                if (carregando) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                } else {
+                if (carregando) { Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+                else {
                     when(aba) {
-                        0 -> { // LISTA DE USUÁRIOS
-                            Text("Total: ${listaUsuarios.size} usuários ativos", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
-                            LazyColumn {
-                                items(listaUsuarios) { user ->
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))
-                                    ) {
-                                        Column(modifier = Modifier.padding(8.dp)) {
-                                            Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White)
-                                            Text("Último acesso: ${formatarData(user.ultimoAcesso)}", fontSize = 12.sp, color = Color.Gray)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        1 -> { // MENSAGENS DE SUPORTE (RESPONDER)
-                            if(listaSuporte.isEmpty()) Text("Nenhuma mensagem.")
-                            LazyColumn {
-                                items(listaSuporte) { msg ->
-                                    Card(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { mensagemParaResponder = msg },
-                                        colors = CardDefaults.cardColors(containerColor = if(msg.resposta.isEmpty()) Color(0xFF4A4A4A) else Color(0xFF2E7D32)) // Verde se respondido
-                                    ) {
-                                        Column(modifier = Modifier.padding(8.dp)) {
-                                            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                                                Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan)
-                                                Text(formatarData(msg.data), fontSize = 10.sp, color = Color.LightGray)
-                                            }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(msg.msg, color = Color.White)
-                                            if (msg.resposta.isNotEmpty()) {
-                                                Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp))
-                                                Text("Resp: ${msg.resposta}", color = Color.Yellow, fontSize = 12.sp)
-                                            } else {
-                                                Text("Toque para responder", fontSize = 10.sp, color = Color.LightGray, modifier = Modifier.padding(top = 4.dp))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        2 -> { // BANIR
-                            OutlinedTextField(
-                                value = novoBanimento,
-                                onValueChange = { novoBanimento = it },
-                                label = { Text("Usuário para banir") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = {
-                                    if(novoBanimento.isNotBlank()) {
-                                        db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date()))
-                                        novoBanimento = ""
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                            ) { Text("BANIR") }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray)
-                        }
+                        0 -> { Text("Total: ${listaUsuarios.size} usuários ativos", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)); LazyColumn { items(listaUsuarios) { user -> Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF252525))) { Column(modifier = Modifier.padding(8.dp)) { Text(user.nome, fontWeight = FontWeight.Bold, color = Color.White); Text("Último acesso: ${formatarData(user.ultimoAcesso)}", fontSize = 12.sp, color = Color.Gray) } } } } }
+                        1 -> { if(listaSuporte.isEmpty()) Text("Nenhuma mensagem."); LazyColumn { items(listaSuporte) { msg -> Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { mensagemParaResponder = msg }, colors = CardDefaults.cardColors(containerColor = if(msg.resposta.isEmpty()) Color(0xFF4A4A4A) else Color(0xFF2E7D32))) { Column(modifier = Modifier.padding(8.dp)) { Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) { Text(msg.usuario, fontWeight = FontWeight.Bold, color = Color.Cyan); Text(formatarData(msg.data), fontSize = 10.sp, color = Color.LightGray) }; Spacer(modifier = Modifier.height(4.dp)); Text(msg.msg, color = Color.White); if (msg.resposta.isNotEmpty()) { Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 4.dp)); Text("Resp: ${msg.resposta}", color = Color.Yellow, fontSize = 12.sp) } else { Text("Toque para responder", fontSize = 10.sp, color = Color.LightGray, modifier = Modifier.padding(top = 4.dp)) } } } } } }
+                        2 -> { OutlinedTextField(value = novoBanimento, onValueChange = { novoBanimento = it }, label = { Text("Usuário para banir") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp)); Button(onClick = { if(novoBanimento.isNotBlank()) { db.collection("usuarios_banidos").document(novoBanimento.lowercase()).set(hashMapOf("data" to Date())); novoBanimento = "" } }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("BANIR") }; Spacer(modifier = Modifier.height(8.dp)); Text("Nota: Banir impede o login futuro deste nome.", fontSize = 12.sp, color = Color.Gray) }
                     }
                 }
             }
@@ -509,124 +503,51 @@ fun DialogoAdmin(onDismiss: () -> Unit) {
     )
 }
 
-// --- OUTROS DIÁLOGOS (Localização e Mercado) MANTIDOS IGUAIS ---
-
 @Composable
-fun DialogoRankingDetalhes(
-    grupoOfertas: List<ProdutoPreco>,
-    usuarioLogado: String,
-    isAdmin: Boolean,
-    onDismiss: () -> Unit,
-    onIrCadastro: (ProdutoPreco) -> Unit,
-    onDelete: (String) -> Unit,
-    onUpdate: (ProdutoPreco) -> Unit,
-    onNovoComentario: (String, String) -> Unit,
-    onApagarComentario: (String, String) -> Unit,
-    onEditarComentario: (String, String, String) -> Unit
-) {
+fun DialogoRankingDetalhes(grupoOfertas: List<ProdutoPreco>, usuarioLogado: String, isAdmin: Boolean, onDismiss: () -> Unit, onIrCadastro: (ProdutoPreco) -> Unit, onDelete: (String) -> Unit, onUpdate: (ProdutoPreco) -> Unit, onNovoComentario: (String, String) -> Unit, onApagarComentario: (String, String) -> Unit, onEditarComentario: (String, String, String) -> Unit) {
     val listaOrdenada = grupoOfertas.sortedBy { it.valor }
     val produtoBase = listaOrdenada.first()
     val todosComentarios = grupoOfertas.flatMap { oferta -> oferta.chatComentarios.map { comentario -> Pair(oferta.id, comentario) } }
-
     var ofertaEmEdicao by remember { mutableStateOf<ProdutoPreco?>(null) }
     var comentarioEmEdicao by remember { mutableStateOf<Pair<String, String>?>(null) }
     var mercadoSelecionado by remember { mutableStateOf<String?>(null) }
     var textoChat by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    if (mercadoSelecionado != null) {
-        DialogoDadosMercado(nomeMercado = mercadoSelecionado!!, isAdmin = isAdmin, onDismiss = { mercadoSelecionado = null })
-    } else if (ofertaEmEdicao != null) {
-        TelaEdicaoInterna(oferta = ofertaEmEdicao!!, onCancel = { ofertaEmEdicao = null }, onSave = { novaOferta -> onUpdate(novaOferta); ofertaEmEdicao = null })
-    } else if (comentarioEmEdicao != null) {
+    if (mercadoSelecionado != null) { DialogoDadosMercado(nomeMercado = mercadoSelecionado!!, isAdmin = isAdmin, onDismiss = { mercadoSelecionado = null }) }
+    else if (ofertaEmEdicao != null) { TelaEdicaoInterna(oferta = ofertaEmEdicao!!, onCancel = { ofertaEmEdicao = null }, onSave = { novaOferta -> onUpdate(novaOferta); ofertaEmEdicao = null }) }
+    else if (comentarioEmEdicao != null) {
         var textoEditado by remember { mutableStateOf(comentarioEmEdicao!!.second.split(": ", limit = 2).getOrElse(1) { "" }) }
-        AlertDialog(
-            onDismissRequest = { comentarioEmEdicao = null },
-            title = { Text("Editar Comentário") },
-            text = { OutlinedTextField(value = textoEditado, onValueChange = { textoEditado = it }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = { Button(onClick = { if (textoEditado.isNotBlank()) { onEditarComentario(comentarioEmEdicao!!.first, comentarioEmEdicao!!.second, textoEditado); comentarioEmEdicao = null } }) { Text("Salvar") } },
-            dismissButton = { TextButton(onClick = { comentarioEmEdicao = null }) { Text("Cancelar") } }
-        )
+        AlertDialog(onDismissRequest = { comentarioEmEdicao = null }, title = { Text("Editar Comentário") }, text = { OutlinedTextField(value = textoEditado, onValueChange = { textoEditado = it }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (textoEditado.isNotBlank()) { onEditarComentario(comentarioEmEdicao!!.first, comentarioEmEdicao!!.second, textoEditado); comentarioEmEdicao = null } }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = { comentarioEmEdicao = null }) { Text("Cancelar") } })
     } else {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold) },
-            text = {
-                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
-                    if (ofertaComFoto != null) {
-                        item {
-                            val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64)
-                            if (bitmap != null) {
-                                Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) {
-                                    Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                                }
+        AlertDialog(onDismissRequest = onDismiss, title = { Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold) }, text = {
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
+                if (ofertaComFoto != null) { item { val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64); if (bitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) { Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } } } }
+                items(listaOrdenada) { oferta ->
+                    Column {
+                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = oferta.mercado, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF03A9F4), modifier = Modifier.clickable { mercadoSelecionado = oferta.mercado })
+                                Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                if (oferta.comentario.isNotEmpty()) Text("Obs: ${oferta.comentario}", style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("R$ ${String.format("%.2f", oferta.valor)}", color = if (oferta == listaOrdenada.first()) Color(0xFF006400) else Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                Row { IconButton(onClick = { ofertaEmEdicao = oferta }) { Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(20.dp), tint = Color.Blue) }; if (isAdmin) { IconButton(onClick = { onDelete(oferta.id) }) { Icon(Icons.Default.Delete, "Excluir", modifier = Modifier.size(20.dp), tint = Color.Red) } } }
                             }
                         }
-                    }
-
-                    items(listaOrdenada) { oferta ->
-                        Column {
-                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = oferta.mercado,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
-                                        color = Color(0xFF03A9F4),
-                                        modifier = Modifier.clickable { mercadoSelecionado = oferta.mercado }
-                                    )
-                                    Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                    if (oferta.comentario.isNotEmpty()) Text("Obs: ${oferta.comentario}", style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text("R$ ${String.format("%.2f", oferta.valor)}", color = if (oferta == listaOrdenada.first()) Color(0xFF006400) else Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                    Row {
-                                        IconButton(onClick = { ofertaEmEdicao = oferta }) { Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(20.dp), tint = Color.Blue) }
-                                        if (isAdmin) { IconButton(onClick = { onDelete(oferta.id) }) { Icon(Icons.Default.Delete, "Excluir", modifier = Modifier.size(20.dp), tint = Color.Red) } }
-                                    }
-                                }
-                            }
-                            Divider(modifier = Modifier.padding(vertical = 4.dp))
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Comentários", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        if (todosComentarios.isEmpty()) { Text("Seja o primeiro a comentar!", fontSize = 12.sp, color = Color.Gray) }
-                        else {
-                            todosComentarios.forEach { (idOferta, msg) ->
-                                val isOwner = msg.startsWith("$usuarioLogado: ")
-                                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(vertical = 2.dp).fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(8.dp)) {
-                                        Text(msg, fontSize = 13.sp)
-                                        if (isOwner || isAdmin) {
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                                if (isOwner) { IconButton(onClick = { comentarioEmEdicao = Pair(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Edit, "Editar", tint = Color.Gray) } }
-                                                IconButton(onClick = { onApagarComentario(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Apagar", tint = Color.Red) }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(
-                                value = textoChat, onValueChange = { textoChat = it }, placeholder = { Text("Escreva um comentário...", fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f).height(56.dp), singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } })
-                            )
-                            IconButton(onClick = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) }
-                        }
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
                     }
                 }
-            },
-            confirmButton = { Button(onClick = { onDismiss(); onIrCadastro(produtoBase) }) { Text("Adicionar Outro Mercado") } },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } }
-        )
+                item {
+                    Spacer(modifier = Modifier.height(16.dp)); Text("Comentários", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.height(8.dp))
+                    if (todosComentarios.isEmpty()) { Text("Seja o primeiro a comentar!", fontSize = 12.sp, color = Color.Gray) }
+                    else { todosComentarios.forEach { (idOferta, msg) -> val isOwner = msg.startsWith("$usuarioLogado: "); Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(vertical = 2.dp).fillMaxWidth()) { Column(modifier = Modifier.padding(8.dp)) { Text(msg, fontSize = 13.sp); if (isOwner || isAdmin) { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { if (isOwner) { IconButton(onClick = { comentarioEmEdicao = Pair(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Edit, "Editar", tint = Color.Gray) } }; IconButton(onClick = { onApagarComentario(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Apagar", tint = Color.Red) } } } } } } }
+                    Spacer(modifier = Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(value = textoChat, onValueChange = { textoChat = it }, placeholder = { Text("Escreva um comentário...", fontSize = 12.sp) }, modifier = Modifier.weight(1f).height(56.dp), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } })); IconButton(onClick = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) } }
+                }
+            }
+        }, confirmButton = { Button(onClick = { onDismiss(); onIrCadastro(produtoBase) }) { Text("Adicionar Outro Mercado") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
     }
 }
 
@@ -638,52 +559,10 @@ fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> 
     var horario by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
     var isEditing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(nomeMercado) {
-        db.collection("mercados").document(nomeMercado).get().addOnSuccessListener { doc ->
-            if (doc.exists()) {
-                endereco = doc.getString("endereco") ?: ""
-                telefone = doc.getString("telefone") ?: ""
-                horario = doc.getString("horario") ?: ""
-            }
-            loading = false
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(nomeMercado) },
-        text = {
-            if (loading) CircularProgressIndicator()
-            else Column {
-                if (isEditing) {
-                    OutlinedTextField(value = endereco, onValueChange = { endereco = it }, label = { Text("Endereço") })
-                    OutlinedTextField(value = telefone, onValueChange = { telefone = it }, label = { Text("Telefone") })
-                    OutlinedTextField(value = horario, onValueChange = { horario = it }, label = { Text("Horário") })
-                } else {
-                    Row { Icon(Icons.Default.LocationOn, null); Spacer(Modifier.width(8.dp)); Text(if(endereco.isEmpty()) "Sem endereço" else endereco) }
-                    Spacer(Modifier.height(8.dp))
-                    Row { Icon(Icons.Default.Phone, null); Spacer(Modifier.width(8.dp)); Text(if(telefone.isEmpty()) "Sem telefone" else telefone) }
-                    Spacer(Modifier.height(8.dp))
-                    Row { Icon(Icons.Default.Schedule, null); Spacer(Modifier.width(8.dp)); Text(if(horario.isEmpty()) "Sem horário" else horario) }
-                }
-            }
-        },
-        confirmButton = {
-            if (isAdmin) {
-                Button(onClick = {
-                    if (isEditing) {
-                        db.collection("mercados").document(nomeMercado).set(DadosMercado(nomeMercado, nomeMercado, endereco, telefone, horario))
-                        isEditing = false
-                    } else isEditing = true
-                }) { Text(if (isEditing) "Salvar" else "Editar Dados") }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } }
-    )
+    LaunchedEffect(nomeMercado) { db.collection("mercados").document(nomeMercado).get().addOnSuccessListener { doc -> if (doc.exists()) { endereco = doc.getString("endereco") ?: ""; telefone = doc.getString("telefone") ?: ""; horario = doc.getString("horario") ?: "" }; loading = false } }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(nomeMercado) }, text = { if (loading) CircularProgressIndicator() else Column { if (isEditing) { OutlinedTextField(value = endereco, onValueChange = { endereco = it }, label = { Text("Endereço") }); OutlinedTextField(value = telefone, onValueChange = { telefone = it }, label = { Text("Telefone") }); OutlinedTextField(value = horario, onValueChange = { horario = it }, label = { Text("Horário") }) } else { Row { Icon(Icons.Default.LocationOn, null); Spacer(Modifier.width(8.dp)); Text(if(endereco.isEmpty()) "Sem endereço" else endereco) }; Spacer(Modifier.height(8.dp)); Row { Icon(Icons.Default.Phone, null); Spacer(Modifier.width(8.dp)); Text(if(telefone.isEmpty()) "Sem telefone" else telefone) }; Spacer(Modifier.height(8.dp)); Row { Icon(Icons.Default.Schedule, null); Spacer(Modifier.width(8.dp)); Text(if(horario.isEmpty()) "Sem horário" else horario) } } } }, confirmButton = { if (isAdmin) { Button(onClick = { if (isEditing) { db.collection("mercados").document(nomeMercado).set(DadosMercado(nomeMercado, nomeMercado, endereco, telefone, horario)); isEditing = false } else isEditing = true }) { Text(if (isEditing) "Salvar" else "Editar Dados") } } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
 }
 
-// ESTA ERA A FUNÇÃO QUE FALTAVA:
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> Unit) {
@@ -691,99 +570,5 @@ fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> U
     var cidadeSel by remember { mutableStateOf("") }
     var buscaCidade by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Selecionar Local") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Estado:",
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(dadosBrasil.keys.sorted()) { uf ->
-                        FilterChip(
-                            selected = estadoSel == uf,
-                            onClick = {
-                                estadoSel = uf
-                                buscaCidade = ""
-                            },
-                            label = { Text(uf) }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = buscaCidade,
-                    onValueChange = { buscaCidade = it },
-                    label = { Text("Buscar cidade...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-                    trailingIcon = {
-                        if (buscaCidade.isNotEmpty()) {
-                            IconButton(onClick = { buscaCidade = "" }) {
-                                Icon(Icons.Default.Close, "Limpar")
-                            }
-                        } else {
-                            Icon(Icons.Default.Search, null)
-                        }
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val cidadesFiltradas = dadosBrasil[estadoSel]?.filter {
-                    it.contains(buscaCidade, ignoreCase = true)
-                } ?: emptyList()
-
-                LazyColumn(modifier = Modifier.height(200.dp)) {
-                    items(cidadesFiltradas) { cidade ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    cidadeSel = cidade
-                                }
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = (cidadeSel == cidade),
-                                onClick = null
-                            )
-                            Text(
-                                text = cidade,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                        Divider(
-                            color = Color.LightGray,
-                            thickness = 0.5.dp
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (cidadeSel.isNotEmpty()) {
-                        onConfirmar(estadoSel, cidadeSel)
-                    } else {
-                        val primeiraCidade = dadosBrasil[estadoSel]?.firstOrNull() ?: ""
-                        onConfirmar(estadoSel, primeiraCidade)
-                    }
-                }
-            ) { Text("Confirmar") }
-        }
-    )
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Selecionar Local") }, text = { Column(modifier = Modifier.fillMaxWidth()) { Text(text = "Estado:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)); LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { items(dadosBrasil.keys.sorted()) { uf -> FilterChip(selected = estadoSel == uf, onClick = { estadoSel = uf; buscaCidade = "" }, label = { Text(uf) }) } }; Spacer(modifier = Modifier.height(16.dp)); OutlinedTextField(value = buscaCidade, onValueChange = { buscaCidade = it }, label = { Text("Buscar cidade...") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }), trailingIcon = { if (buscaCidade.isNotEmpty()) { IconButton(onClick = { buscaCidade = "" }) { Icon(Icons.Default.Close, "Limpar") } } else { Icon(Icons.Default.Search, null) } }); Spacer(modifier = Modifier.height(8.dp)); val cidadesFiltradas = dadosBrasil[estadoSel]?.filter { it.contains(buscaCidade, ignoreCase = true) } ?: emptyList(); LazyColumn(modifier = Modifier.height(200.dp)) { items(cidadesFiltradas) { cidade -> Row(modifier = Modifier.fillMaxWidth().clickable { cidadeSel = cidade }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = (cidadeSel == cidade), onClick = null); Text(text = cidade, modifier = Modifier.padding(start = 8.dp)) }; Divider(color = Color.LightGray, thickness = 0.5.dp) } } } }, confirmButton = { Button(onClick = { if (cidadeSel.isNotEmpty()) { onConfirmar(estadoSel, cidadeSel) } else { val primeiraCidade = dadosBrasil[estadoSel]?.firstOrNull() ?: ""; onConfirmar(estadoSel, primeiraCidade) } }) { Text("Confirmar") } })
 }

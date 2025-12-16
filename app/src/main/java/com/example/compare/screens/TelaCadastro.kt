@@ -76,6 +76,14 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.Date
 import java.util.Locale
 
+// --- FUNÇÃO AUXILIAR PARA CAPITALIZAR ---
+// Transforma "arroz branco" em "Arroz Branco"
+fun String.capitalizarPalavras(): String {
+    return this.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
+        palavra.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+    }
+}
+
 @Composable
 fun TelaEdicaoInterna(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (ProdutoPreco) -> Unit) {
     var nomeEd by remember { mutableStateOf(oferta.nomeProduto) }
@@ -118,10 +126,12 @@ fun TelaEdicaoInterna(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (Produ
                 val novaFoto = if (fotoBitmap != null) bitmapParaString(fotoBitmap!!) else ""
 
                 if (nomeEd.isNotEmpty() && !temOfensa(nomeEd)) {
-                    // ATENÇÃO: Salvando nomePesquisa em minúsculo na edição também
+                    // MUDANÇA: Capitaliza o nome ao editar também
+                    val nomeBonito = nomeEd.capitalizarPalavras()
+
                     val nova = oferta.copy(
-                        nomeProduto = nomeEd,
-                        nomePesquisa = nomeEd.lowercase(),
+                        nomeProduto = nomeBonito,
+                        nomePesquisa = nomeBonito.lowercase(), // Salva minusculo para busca
                         valor = novoPreco,
                         codigoBarras = codEd,
                         fotoBase64 = novaFoto
@@ -260,11 +270,13 @@ fun TelaCadastro(
                     val fotoString = if (fotoBitmap != null) bitmapParaString(fotoBitmap!!) else ""
                     val listaComents = if (comentario.isNotEmpty()) listOf("$usuarioNome: $comentario") else emptyList()
 
-                    // ATENÇÃO: Salvando campo "nomePesquisa" em minúsculas
+                    // MUDANÇA: Aplica a capitalização aqui
+                    val nomeBonito = nome.capitalizarPalavras()
+
                     val ofertaNova = ProdutoPreco(
                         codigoBarras = codigoBarras,
-                        nomeProduto = nome,
-                        nomePesquisa = nome.lowercase(), // <--- AQUI ESTÁ A MÁGICA
+                        nomeProduto = nomeBonito, // Salva bonito
+                        nomePesquisa = nomeBonito.lowercase(), // Salva minúsculo para busca
                         valor = precoFinal,
                         mercado = mercado,
                         cidade = cidadePre,
@@ -284,7 +296,6 @@ fun TelaCadastro(
                             val dadosAntigos = snapshot.documents[0].toObject(ProdutoPreco::class.java)
                             val fotoFinal = if(fotoString.isNotEmpty()) fotoString else dadosAntigos?.fotoBase64 ?: ""
                             val comentsFinais = (dadosAntigos?.chatComentarios ?: emptyList()) + listaComents
-                            // Atualiza mantendo o minúsculo
                             val ofertaAtualizada = ofertaNova.copy(fotoBase64 = fotoFinal, chatComentarios = comentsFinais)
                             db.collection("ofertas").document(idExistente).set(ofertaAtualizada)
                             Toast.makeText(context, "Preço ATUALIZADO!", Toast.LENGTH_SHORT).show()
@@ -293,7 +304,7 @@ fun TelaCadastro(
                             Toast.makeText(context, "Preço CADASTRADO!", Toast.LENGTH_SHORT).show()
                         }
                     }
-                    if (codigoBarras.isNotEmpty()) { val dadosProduto = hashMapOf("nome" to nome); db.collection("produtos_unicos").document(codigoBarras).set(dadosProduto) }
+                    if (codigoBarras.isNotEmpty()) { val dadosProduto = hashMapOf("nome" to nomeBonito); db.collection("produtos_unicos").document(codigoBarras).set(dadosProduto) }
                     onSalvar()
                 } else { Toast.makeText(context, "Preencha os dados obrigatórios!", Toast.LENGTH_SHORT).show() }
             },

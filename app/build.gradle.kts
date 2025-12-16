@@ -55,7 +55,7 @@ dependencies {
         // NAVIGATON E ACTIVITY (Básico)
         implementation("androidx.activity:activity-compose:1.8.2")
         implementation("androidx.compose.ui:ui:1.6.0")
-        implementation("androidx.compose.material3:material3:1.2.0")
+
 
     // Scanner de Código de Barras (Google)
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
@@ -79,4 +79,8 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    // MANTENHA ESTAS (o BOM já cuida da versão correta):
+    implementation(platform(libs.androidx.compose.bom))
+
 }
