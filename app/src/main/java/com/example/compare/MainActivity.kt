@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import com.example.compare.model.ProdutoPreco
+import com.example.compare.screens.TelaAdmin // <--- IMPORTANTE
 import com.example.compare.screens.TelaCadastro
 import com.example.compare.screens.TelaHome
 import com.example.compare.screens.TelaLogin
@@ -53,7 +54,6 @@ class MainActivity : ComponentActivity() {
                     onSurface = Color(0xFFE6E1E5)
                 )
             ) {
-                // safeDrawingPadding evita que o app fique embaixo da barra de status
                 Surface(
                     modifier = Modifier.fillMaxSize().safeDrawingPadding(),
                     color = MaterialTheme.colorScheme.background
@@ -80,7 +80,6 @@ fun AppNavegacao() {
     var estadoSelecionado by remember { mutableStateOf("SC") }
     var cidadeSelecionada by remember { mutableStateOf("Jaraguá do Sul") }
 
-    // Diálogo de Termos de Uso (aparece apenas se ainda não aceitou)
     if (telaAtual == "HOME" && !aceitouTermos) {
         AlertDialog(
             onDismissRequest = {},
@@ -131,6 +130,9 @@ fun AppNavegacao() {
                     produtoParaPreencher = produtoOpcional
                     telaAtual = "CADASTRO"
                 },
+                onIrAdmin = {
+                    telaAtual = "ADMIN" // <--- NAVEGAÇÃO PARA O ADMIN
+                },
                 onSair = {
                     prefs.edit().clear().apply()
                     nomeUsuario = ""
@@ -158,6 +160,14 @@ fun AppNavegacao() {
                     produtoParaPreencher = null
                     telaAtual = "HOME"
                 }
+            )
+        }
+        "ADMIN" -> { // <--- NOVA TELA
+            BackHandler {
+                telaAtual = "HOME"
+            }
+            TelaAdmin(
+                onVoltar = { telaAtual = "HOME" }
             )
         }
     }
