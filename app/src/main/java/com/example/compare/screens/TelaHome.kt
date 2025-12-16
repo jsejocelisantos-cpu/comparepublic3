@@ -1,5 +1,8 @@
 package com.example.compare.screens
 
+import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -39,6 +44,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,7 +58,7 @@ fun TelaHome(
     cidadeAtual: String,
     onMudarFiltro: (String, String) -> Unit,
     onIrCadastro: (ProdutoPreco?) -> Unit,
-    onIrAdmin: () -> Unit, // <--- NOVO PARÂMETRO
+    onIrAdmin: () -> Unit,
     onSair: () -> Unit
 ) {
     var textoBusca by remember { mutableStateOf("") }
@@ -65,7 +71,6 @@ fun TelaHome(
     var menuExpandido by remember { mutableStateOf(false) }
     var mostrarSobre by remember { mutableStateOf(false) }
     var mostrarSuporte by remember { mutableStateOf(false) }
-    // REMOVIDO: var mostrarPainelAdmin
 
     var ultimoDocumento by remember { mutableStateOf<DocumentSnapshot?>(null) }
     var carregandoMais by remember { mutableStateOf(false) }
@@ -73,6 +78,57 @@ fun TelaHome(
 
     val db = FirebaseFirestore.getInstance()
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // --- LÓGICA DE VOLTAR (DUPLO CLIQUE PARA SAIR) ---
+    var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = true) {
+        // 1. Se estiver com busca ativa, limpa a busca primeiro
+        if (textoBusca.isNotEmpty()) {
+            textoBusca = ""
+            // Precisamos recarregar a lista padrão manualmente aqui
+            carregandoMais = true // Trava para evitar cliques múltiplos
+            todosProdutos.clear()
+            ultimoDocumento = null
+            temMais = true
+
+            db.collection("ofertas")
+                .orderBy("data", Query.Direction.DESCENDING)
+                .limit(20)
+                .get()
+                .addOnSuccessListener { result ->
+                    for (doc in result) {
+                        try {
+                            val produto = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
+                            if (produto.cidade.equals(cidadeAtual, ignoreCase = true) || produto.cidade.isEmpty()) {
+                                todosProdutos.add(produto)
+                            }
+                        } catch (e: Exception) {}
+                    }
+                    if(!result.isEmpty) ultimoDocumento = result.documents[result.size() - 1]
+                    carregandoMais = false
+                }
+                .addOnFailureListener { carregandoMais = false }
+
+        } else if (grupoSelecionadoParaDetalhes != null) {
+            // 2. Se estiver vendo detalhes, fecha os detalhes
+            grupoSelecionadoParaDetalhes = null
+        } else {
+            // 3. Se estiver na home limpa, lógica do duplo clique
+            if (doubleBackToExitPressedOnce) {
+                (context as? Activity)?.finish() // Sai do App
+            } else {
+                doubleBackToExitPressedOnce = true
+                Toast.makeText(context, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    delay(2000) // Reseta após 2 segundos
+                    doubleBackToExitPressedOnce = false
+                }
+            }
+        }
+    }
 
     // --- MONITOR DE ATIVIDADE (30 SEGUNDOS) ---
     LaunchedEffect(usuarioLogado) {
@@ -208,16 +264,7 @@ fun TelaHome(
                         Icon(Icons.Default.MoreVert, "Menu")
                     }
                     DropdownMenu(expanded = menuExpandido, onDismissRequest = { menuExpandido = false }) {
-                        if(isAdmin) {
-                            // ALTERADO: Chama a função de navegação
-                            DropdownMenuItem(
-                                text = { Text("Painel Admin") },
-                                onClick = {
-                                    menuExpandido = false
-                                    onIrAdmin()
-                                }
-                            )
-                        }
+                        if(isAdmin) DropdownMenuItem(text = { Text("Painel Admin") }, onClick = { menuExpandido = false; onIrAdmin() })
                         DropdownMenuItem(text = { Text("Sobre o App") }, onClick = { menuExpandido = false; mostrarSobre = true })
                         DropdownMenuItem(text = { Text("Suporte") }, onClick = { menuExpandido = false; mostrarSuporte = true })
                         Divider()
@@ -320,8 +367,6 @@ fun TelaHome(
     if (mostrarSuporte) {
         DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
     }
-
-    // REMOVIDO: if (mostrarPainelAdmin) DialogoAdmin(...)
 
     if (grupoSelecionadoParaDetalhes != null) {
         DialogoRankingDetalhes(
