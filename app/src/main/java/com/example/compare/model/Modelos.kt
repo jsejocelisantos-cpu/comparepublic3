@@ -7,6 +7,7 @@ data class ProdutoPreco(
     val id: String = "",
     val codigoBarras: String = "",
     val nomeProduto: String = "",
+    val nomePesquisa: String = "", // <--- NOVO CAMPO PARA A BUSCA
     val valor: Double = 0.0,
     val mercado: String = "",
     val cidade: String = "",
@@ -19,7 +20,7 @@ data class ProdutoPreco(
     val chatComentarios: List<String> = emptyList()
 )
 
-// --- 2. DADOS DO MERCADO (Para o Admin) ---
+// --- 2. DADOS DO MERCADO ---
 data class DadosMercado(
     val id: String = "",
     val nome: String = "",
@@ -28,14 +29,13 @@ data class DadosMercado(
     val horario: String = ""
 )
 
-// --- 3. USUÁRIO (Para o Login salvar acesso) ---
-// SE ESTA CLASSE FALTAR, A TELA DE LOGIN DÁ ERRO!
+// --- 3. USUÁRIO ---
 data class Usuario(
     val nome: String = "",
     val ultimoAcesso: Date = Date()
 )
 
-// --- 4. SUPORTE (Para o Chat) ---
+// --- 4. SUPORTE ---
 data class MensagemSuporte(
     val id: String = "",
     val usuario: String = "",

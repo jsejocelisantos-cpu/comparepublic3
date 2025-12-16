@@ -106,14 +106,18 @@ fun TelaHome(
 
     LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
 
+
     fun buscarNoBanco() {
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true); return }
         carregandoMais = true
         todosProdutos.clear()
 
+        // CONVERTE PARA MINÚSCULO E BUSCA NO CAMPO 'nomePesquisa'
+        val termoBusca = textoBusca.lowercase()
+
         db.collection("ofertas")
-            .whereGreaterThanOrEqualTo("nomeProduto", textoBusca)
-            .whereLessThanOrEqualTo("nomeProduto", textoBusca + "\uf8ff")
+            .whereGreaterThanOrEqualTo("nomePesquisa", termoBusca)
+            .whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff")
             .limit(50)
             .get()
             .addOnSuccessListener { res ->
