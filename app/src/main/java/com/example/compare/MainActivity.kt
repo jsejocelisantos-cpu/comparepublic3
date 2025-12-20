@@ -26,15 +26,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import com.example.compare.model.ProdutoPreco
-import com.example.compare.screens.TelaAdmin // <--- IMPORTANTE
+import com.example.compare.screens.TelaAdmin
 import com.example.compare.screens.TelaCadastro
 import com.example.compare.screens.TelaHome
+import com.example.compare.screens.TelaListaCompras // <--- IMPORTANTE
 import com.example.compare.screens.TelaLogin
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        // ... (resto do onCreate igual) ...
         // CORES DO TEMA ESCURO (INDUSTRIAL)
         val AzulIndustrial = Color(0xFF1565C0)
         val AzulAcento = Color(0xFF42A5F5)
@@ -131,7 +132,11 @@ fun AppNavegacao() {
                     telaAtual = "CADASTRO"
                 },
                 onIrAdmin = {
-                    telaAtual = "ADMIN" // <--- NAVEGAÇÃO PARA O ADMIN
+                    telaAtual = "ADMIN"
+                },
+                // --- NOVO CALLBACK PARA O CARRINHO ---
+                onIrListaCompras = {
+                    telaAtual = "LISTA_COMPRAS"
                 },
                 onSair = {
                     prefs.edit().clear().apply()
@@ -162,11 +167,22 @@ fun AppNavegacao() {
                 }
             )
         }
-        "ADMIN" -> { // <--- NOVA TELA
+        "ADMIN" -> {
             BackHandler {
                 telaAtual = "HOME"
             }
             TelaAdmin(
+                onVoltar = { telaAtual = "HOME" }
+            )
+        }
+        // --- NOVA ROTA ---
+        "LISTA_COMPRAS" -> {
+            BackHandler {
+                telaAtual = "HOME"
+            }
+            TelaListaCompras(
+                usuarioLogado = nomeUsuario,
+                cidadeAtual = cidadeSelecionada,
                 onVoltar = { telaAtual = "HOME" }
             )
         }

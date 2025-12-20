@@ -37,13 +37,14 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.compare.R
+import com.example.compare.model.ItemLista
 import com.example.compare.model.ProdutoPreco
 import com.example.compare.model.Usuario
 import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning // [NOVO IMPORT]
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -60,6 +61,7 @@ fun TelaHome(
     onMudarFiltro: (String, String) -> Unit,
     onIrCadastro: (ProdutoPreco?) -> Unit,
     onIrAdmin: () -> Unit,
+    onIrListaCompras: () -> Unit, // <--- NOVO PARÂMETRO
     onSair: () -> Unit
 ) {
     var textoBusca by remember { mutableStateOf("") }
@@ -85,8 +87,35 @@ fun TelaHome(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // [NOVO] Inicializa o Scanner do Google
+    // Inicializa o Scanner do Google
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
+
+    // --- FUNÇÃO PARA ADICIONAR AO CARRINHO (NOVO) ---
+    fun adicionarAoCarrinho(produto: ProdutoPreco) {
+        val item = ItemLista(
+            usuarioId = usuarioLogado,
+            nomeProduto = produto.nomeProduto,
+            codigoBarras = produto.codigoBarras,
+            quantidade = 1,
+            comprado = false
+        )
+        // Verifica se já existe para somar quantidade ou cria novo
+        db.collection("lista_compras")
+            .whereEqualTo("usuarioId", usuarioLogado)
+            .whereEqualTo("nomeProduto", produto.nomeProduto)
+            .get()
+            .addOnSuccessListener { res ->
+                if (!res.isEmpty) {
+                    val id = res.documents[0].id
+                    val qtdAtual = res.documents[0].getLong("quantidade") ?: 1
+                    db.collection("lista_compras").document(id).update("quantidade", qtdAtual + 1)
+                    Toast.makeText(context, "${produto.nomeProduto}: +1 na lista", Toast.LENGTH_SHORT).show()
+                } else {
+                    db.collection("lista_compras").add(item)
+                    Toast.makeText(context, "${produto.nomeProduto} adicionado à lista!", Toast.LENGTH_SHORT).show()
+                }
+            }
+    }
 
     // --- LÓGICA DE AUTOCOMPLETE ---
     LaunchedEffect(textoBusca) {
@@ -169,21 +198,18 @@ fun TelaHome(
         expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
         carregandoMais = true; todosProdutos.clear(); val termoBusca = textoBusca.lowercase()
-        // Tenta buscar por código exato (se for numérico) ou por nome
         val query = if (termoBusca.all { it.isDigit() }) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
             db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff").limit(20)
         }
-
-        query.get()
-            .addOnSuccessListener { res ->
-                for(doc in res) {
-                    val p = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
-                    if (p.cidade.equals(cidadeAtual, ignoreCase = true) || p.cidade.isEmpty()) todosProdutos.add(p)
-                }
-                carregandoMais = false; temMais = false; onConcluido()
-            }.addOnFailureListener { carregandoMais = false; onConcluido() }
+        query.get().addOnSuccessListener { res ->
+            for(doc in res) {
+                val p = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
+                if (p.cidade.equals(cidadeAtual, ignoreCase = true) || p.cidade.isEmpty()) todosProdutos.add(p)
+            }
+            carregandoMais = false; temMais = false; onConcluido()
+        }.addOnFailureListener { carregandoMais = false; onConcluido() }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -208,25 +234,21 @@ fun TelaHome(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(id = R.drawable.logohome2),
-                            contentDescription = "Logo",
-                            modifier = Modifier.size(180.dp)
-                        )
+                        Image(painter = painterResource(id = R.drawable.logohome2), contentDescription = "Logo", modifier = Modifier.size(180.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(cidadeAtual, fontSize = 12.sp, fontWeight = FontWeight.Normal)
-                        }
+                        Column { Text(cidadeAtual, fontSize = 12.sp, fontWeight = FontWeight.Normal) }
                     }
                 },
                 actions = {
                     IconButton(onClick = { menuExpandido = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(expanded = menuExpandido, onDismissRequest = { menuExpandido = false }) {
+                        // NOVO BOTÃO NO MENU
                         DropdownMenuItem(
-                            text = { Text("Alterar Cidade") },
-                            leadingIcon = { Icon(Icons.Default.LocationOn, null) },
-                            onClick = { menuExpandido = false; mostrarDialogoFiltro = true }
+                            text = { Text("Lista de Compras") },
+                            leadingIcon = { Icon(Icons.Default.ShoppingCart, null) },
+                            onClick = { menuExpandido = false; onIrListaCompras() }
                         )
+                        DropdownMenuItem(text = { Text("Alterar Cidade") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, onClick = { menuExpandido = false; mostrarDialogoFiltro = true })
                         Divider()
                         if(isAdmin) DropdownMenuItem(text = { Text("Painel Admin") }, onClick = { menuExpandido = false; onIrAdmin() })
                         DropdownMenuItem(text = { Text("Sobre o App") }, onClick = { menuExpandido = false; mostrarSobre = true })
@@ -248,50 +270,23 @@ fun TelaHome(
                 Column {
                     Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
                         OutlinedTextField(
-                            value = textoBusca,
-                            onValueChange = { textoBusca = it },
-                            label = { Text("Buscar produto...") },
-                            leadingIcon = { Icon(Icons.Default.Search, null) },
-                            // [NOVO] Ícone do Scanner na barra de busca
+                            value = textoBusca, onValueChange = { textoBusca = it }, label = { Text("Buscar produto...") }, leadingIcon = { Icon(Icons.Default.Search, null) },
                             trailingIcon = {
-
-                                    Image(
-                                        painter = painterResource(id = R.drawable.scancode),
-                                        contentDescription = "Escanear",
-                                        contentScale = ContentScale.Fit, // Força a imagem a preencher o tamanho
-                                        modifier = Modifier
-                                            .size(60.dp) // <--- CONTROLA O TAMANHO REAL scannCodeHome
-                                            .padding(end = 4.dp) // espaço da borda direita
-                                            .clip(RoundedCornerShape(4.dp)) // Opcional: deixa o clique quadrado ou redondo
-                                            .clickable {
-                                                scanner.startScan()
-                                                    .addOnSuccessListener { barcode ->
-                                                        val rawValue = barcode.rawValue
-                                                        if (rawValue != null) {
-                                                            textoBusca = rawValue
-                                                            expandirSugestoes = false
-                                                            buscarNoBanco()
-                                                            focusManager.clearFocus()
-                                                        }
-                                                    }
-                                                    .addOnFailureListener {
-                                                        Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show()
-                                                    }
-                                            }
-                                    )
-
-                                },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                Image(
+                                    painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
+                                    modifier = Modifier.size(50.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
+                                        scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null) { textoBusca = rawValue; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() } }
+                                            .addOnFailureListener { Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show() }
+                                    }
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() })
                         )
                         DropdownMenu(
                             expanded = expandirSugestoes, onDismissRequest = { expandirSugestoes = false }, modifier = Modifier.fillMaxWidth(0.95f), properties = PopupProperties(focusable = false)
                         ) {
-                            sugestoesBusca.forEach { nomeSugestao ->
-                                DropdownMenuItem(text = { Text(nomeSugestao) }, onClick = { textoBusca = nomeSugestao; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() })
-                            }
+                            sugestoesBusca.forEach { nomeSugestao -> DropdownMenuItem(text = { Text(nomeSugestao) }, onClick = { textoBusca = nomeSugestao; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() }) }
                         }
                     }
 
@@ -306,6 +301,7 @@ fun TelaHome(
                             if (melhorOferta != null) {
                                 Card(modifier = Modifier.padding(8.dp).fillMaxWidth().clickable { carregarDetalhesCompletos(melhorOferta) }, elevation = CardDefaults.cardElevation(4.dp)) {
                                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        // ÁREA DA FOTO
                                         val ofertaComFoto = listaDoGrupo.firstOrNull { it.fotoBase64.isNotEmpty() }
                                         if(ofertaComFoto != null){
                                             val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64)
@@ -314,14 +310,23 @@ fun TelaHome(
                                                 Spacer(modifier = Modifier.width(10.dp))
                                             }
                                         }
+
+                                        // TEXTOS
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(text = melhorOferta.nomeProduto, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                             Text(text = "Ver $totalOfertas preços", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                                             Text(text = "Atualizado: ${formatarData(melhorOferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                         }
+
+                                        // PREÇO E BOTÃO CARRINHO
                                         Column(horizontalAlignment = Alignment.End) {
                                             Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                             Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
+
+                                            // NOVO: BOTÃO ADICIONAR AO CARRINHO
+                                            IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
+                                                Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
+                                            }
                                         }
                                     }
                                 }
@@ -337,7 +342,6 @@ fun TelaHome(
 
     if (mostrarBannerBoasVindas) AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
     if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
-
     if (mostrarSuporte) DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
 
     if (grupoSelecionadoParaDetalhes != null) {

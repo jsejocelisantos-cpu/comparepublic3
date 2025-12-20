@@ -44,3 +44,14 @@ data class MensagemSuporte(
     val resposta: String = "",
     val dataResposta: Date? = null
 )
+// ... (mantenha as classes anteriores: ProdutoPreco, Usuario, etc.)
+
+// --- NOVO MODELO: Item da Lista de Compras ---
+data class ItemLista(
+    val id: String = "",
+    val usuarioId: String = "",
+    val nomeProduto: String = "", // Nome para buscar ofertas
+    val codigoBarras: String = "", // Opcional, ajuda na precisão
+    val quantidade: Int = 1,
+    val comprado: Boolean = false // Checkbox
+)
