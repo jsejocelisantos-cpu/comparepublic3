@@ -43,6 +43,7 @@ import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning // [NOVO IMPORT]
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -83,6 +84,9 @@ fun TelaHome(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // [NOVO] Inicializa o Scanner do Google
+    val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
     // --- LÓGICA DE AUTOCOMPLETE ---
     LaunchedEffect(textoBusca) {
@@ -165,7 +169,14 @@ fun TelaHome(
         expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
         carregandoMais = true; todosProdutos.clear(); val termoBusca = textoBusca.lowercase()
-        db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff").limit(20).get()
+        // Tenta buscar por código exato (se for numérico) ou por nome
+        val query = if (termoBusca.all { it.isDigit() }) {
+            db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
+        } else {
+            db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff").limit(20)
+        }
+
+        query.get()
             .addOnSuccessListener { res ->
                 for(doc in res) {
                     val p = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
@@ -197,24 +208,20 @@ fun TelaHome(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // LOGO ADICIONADO AQUI
                         Image(
-                            painter = painterResource(id = R.drawable.logohome2), // Troque pelo seu logo se tiver
+                            painter = painterResource(id = R.drawable.logohome2),
                             contentDescription = "Logo",
                             modifier = Modifier.size(180.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                       Column { //Texto superior tela home
-                           // Text("Compare", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Column {
                             Text(cidadeAtual, fontSize = 12.sp, fontWeight = FontWeight.Normal)
                         }
                     }
                 },
                 actions = {
-                    // Botão de localização removido e movido para o menu
                     IconButton(onClick = { menuExpandido = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(expanded = menuExpandido, onDismissRequest = { menuExpandido = false }) {
-                        // Nova opção de trocar cidade
                         DropdownMenuItem(
                             text = { Text("Alterar Cidade") },
                             leadingIcon = { Icon(Icons.Default.LocationOn, null) },
@@ -241,8 +248,42 @@ fun TelaHome(
                 Column {
                     Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
                         OutlinedTextField(
-                            value = textoBusca, onValueChange = { textoBusca = it }, label = { Text("Buscar produto...") }, leadingIcon = { Icon(Icons.Default.Search, null) },
-                            modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            value = textoBusca,
+                            onValueChange = { textoBusca = it },
+                            label = { Text("Buscar produto...") },
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
+                            // [NOVO] Ícone do Scanner na barra de busca
+                            trailingIcon = {
+
+                                    Image(
+                                        painter = painterResource(id = R.drawable.scancode),
+                                        contentDescription = "Escanear",
+                                        contentScale = ContentScale.Fit, // Força a imagem a preencher o tamanho
+                                        modifier = Modifier
+                                            .size(60.dp) // <--- CONTROLA O TAMANHO REAL scannCodeHome
+                                            .padding(end = 4.dp) // espaço da borda direita
+                                            .clip(RoundedCornerShape(4.dp)) // Opcional: deixa o clique quadrado ou redondo
+                                            .clickable {
+                                                scanner.startScan()
+                                                    .addOnSuccessListener { barcode ->
+                                                        val rawValue = barcode.rawValue
+                                                        if (rawValue != null) {
+                                                            textoBusca = rawValue
+                                                            expandirSugestoes = false
+                                                            buscarNoBanco()
+                                                            focusManager.clearFocus()
+                                                        }
+                                                    }
+                                                    .addOnFailureListener {
+                                                        Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show()
+                                                    }
+                                            }
+                                    )
+
+                                },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() })
                         )
                         DropdownMenu(
@@ -297,7 +338,6 @@ fun TelaHome(
     if (mostrarBannerBoasVindas) AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
     if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
 
-    // Agora chamamos os diálogos do outro arquivo
     if (mostrarSuporte) DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
 
     if (grupoSelecionadoParaDetalhes != null) {

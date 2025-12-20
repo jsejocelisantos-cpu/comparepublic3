@@ -240,7 +240,7 @@ fun TelaCadastro(
 
         if (produtoPreenchido == null) {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Image(painter = painterResource(id = R.drawable.scancode), contentDescription = "Scan", modifier = Modifier.weight(1f).height(100.dp).clickable { if (temPermissaoCamera) { scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null && !rawValue.contains("/")) { codigoBarras = rawValue; metodo = "SCANNER"; buscarProdutoPorCodigo(rawValue) } else { Toast.makeText(context, "Escaneie apenas códigos de barras!", Toast.LENGTH_LONG).show() } } } else { launcherPermissao.launch(Manifest.permission.CAMERA) } }, contentScale = ContentScale.Fit)
+                Image(painter = painterResource(id = R.drawable.scancode), contentDescription = "Scan", modifier = Modifier.weight(1f).height(60.dp).clickable { if (temPermissaoCamera) { scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null && !rawValue.contains("/")) { codigoBarras = rawValue; metodo = "SCANNER"; buscarProdutoPorCodigo(rawValue) } else { Toast.makeText(context, "Escaneie apenas códigos de barras!", Toast.LENGTH_LONG).show() } } } else { launcherPermissao.launch(Manifest.permission.CAMERA) } }, contentScale = ContentScale.Fit)
                 Button(onClick = { mostrarOpcoesFoto = true }, modifier = Modifier.weight(1f).height(50.dp), contentPadding = PaddingValues(4.dp)) { Icon(Icons.Default.CameraAlt, null); Text("Foto/Galeria", fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp)) }
             }
             Spacer(modifier = Modifier.height(10.dp))
