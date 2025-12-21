@@ -12,7 +12,7 @@ import java.util.Locale
 // --- FUNÇÕES ÚTEIS ---
 
 fun temOfensa(texto: String): Boolean {
-    val listaProibida = listOf("droga", "burro", "idiota", "merda", "bosta", "puta", "vagabundo", "imbecil", "caralho", "porra", "otario", "cu", "foder", "arrombado")
+    val listaProibida = listOf("droga", "idiota", "merda", "bosta", "puta", "vagabundo", "imbecil", "caralho", "porra", "otario", "foder", "arrombado")
     val textoNormalizado = Normalizer.normalize(texto, Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "").lowercase(Locale.getDefault())
     for (palavra in listaProibida) { if (textoNormalizado.contains(palavra)) return true }
     return false
