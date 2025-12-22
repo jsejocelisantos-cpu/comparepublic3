@@ -1,6 +1,7 @@
 package com.example.compare.screens
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -55,8 +56,14 @@ import com.example.compare.model.ProdutoPreco
 import com.example.compare.utils.bitmapParaString
 import com.example.compare.utils.stringParaBitmap
 import com.example.compare.utils.temOfensa
+// Importa a função de busca na internet que você criou em NetworkUtils.kt
+import com.example.compare.utils.buscarProdutoOpenFoodFacts
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URL
 import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
@@ -77,6 +84,9 @@ fun TelaCadastro(
     val focusManager = LocalFocusManager.current
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
+    // Escopo para rodar a busca na web (assíncrona)
+    val scope = rememberCoroutineScope()
+
     // --- ESTADOS DOS CAMPOS ---
     var codigoBarras by remember { mutableStateOf(produtoPreenchido?.codigoBarras ?: "") }
     var nomeProduto by remember { mutableStateOf(produtoPreenchido?.nomeProduto ?: "") }
@@ -92,8 +102,6 @@ fun TelaCadastro(
     }
 
     // --- LÓGICA INTELIGENTE DO MERCADO ---
-    // 1. Edição/Oferta existente: Usa o mercado que veio.
-    // 2. Novo Cadastro ou Vindo do Catálogo (vazio): Usa o ÚLTIMO MERCADO da memória.
     var mercado by remember {
         mutableStateOf(
             if (produtoPreenchido?.mercado?.isNotEmpty() == true) produtoPreenchido.mercado else ultimoMercado
@@ -128,7 +136,6 @@ fun TelaCadastro(
     }
 
     // --- LOCALIZAÇÃO E MERCADOS ---
-    // Usa automaticamente o que veio da Home
     val estadoSelecionado = if (produtoPreenchido?.estado?.isNotEmpty() == true) produtoPreenchido.estado else estadoPre
     val cidadeSelecionada = if (produtoPreenchido?.cidade?.isNotEmpty() == true) produtoPreenchido.cidade else cidadePre
 
@@ -143,18 +150,22 @@ fun TelaCadastro(
     var salvando by remember { mutableStateOf(false) }
     var buscandoProduto by remember { mutableStateOf(false) }
 
-    // --- BUSCA AUTOMÁTICA (CATÁLOGO + HISTÓRICO) ---
+    // Estado para controlar o loading específico da internet
+    var buscandoWeb by remember { mutableStateOf(false) }
+
+    // --- BUSCA AUTOMÁTICA (CATÁLOGO -> HISTÓRICO -> INTERNET) ---
     LaunchedEffect(codigoBarras) {
         if (codigoBarras.length >= 8 && nomeProduto.isEmpty() && !buscandoProduto) {
             buscandoProduto = true
-            // 1. Busca no Catálogo Base (CSV)
+
+            // 1. Busca no Catálogo Base (CSV/Local)
             db.collection("produtos_base").document(codigoBarras).get().addOnSuccessListener { doc ->
                 if (doc.exists()) {
                     nomeProduto = doc.getString("nomeProduto") ?: ""
                     Toast.makeText(context, "Produto encontrado no catálogo!", Toast.LENGTH_SHORT).show()
                     buscandoProduto = false
                 } else {
-                    // 2. Busca no Histórico de Ofertas
+                    // 2. Busca no Histórico de Ofertas (Firebase)
                     db.collection("ofertas").whereEqualTo("codigoBarras", codigoBarras).limit(1).get().addOnSuccessListener { res ->
                         if (!res.isEmpty) {
                             val p = res.documents[0].toObject(ProdutoPreco::class.java)
@@ -163,11 +174,37 @@ fun TelaCadastro(
                                 if (fotoBase64.isEmpty()) fotoBase64 = p.fotoBase64
                                 Toast.makeText(context, "Produto já cadastrado antes!", Toast.LENGTH_SHORT).show()
                             }
+                            buscandoProduto = false
+                        } else {
+                            // 3. TENTA BUSCAR NA INTERNET (Open Food Facts via NetworkUtils)
+                            buscandoWeb = true
+                            scope.launch(Dispatchers.Main) {
+                                val produtoWeb = buscarProdutoOpenFoodFacts(codigoBarras)
+
+                                if (produtoWeb != null) {
+                                    nomeProduto = capitalizarTexto(produtoWeb.nome)
+                                    Toast.makeText(context, "Encontrado na internet!", Toast.LENGTH_SHORT).show()
+
+                                    // Tenta baixar a foto da internet se existir URL e não tivermos foto ainda
+                                    if (produtoWeb.fotoUrl.isNotEmpty() && fotoBase64.isEmpty()) {
+                                        val bmp = baixarImagemDaUrl(produtoWeb.fotoUrl)
+                                        if (bmp != null) {
+                                            fotoBase64 = bitmapParaString(bmp)
+                                        }
+                                    }
+                                }
+                                buscandoWeb = false
+                                buscandoProduto = false
+                            }
                         }
+                    }.addOnFailureListener {
                         buscandoProduto = false
-                    }.addOnFailureListener { buscandoProduto = false }
+                        buscandoWeb = false
+                    }
                 }
-            }.addOnFailureListener { buscandoProduto = false }
+            }.addOnFailureListener {
+                buscandoProduto = false
+            }
         }
     }
 
@@ -276,7 +313,15 @@ fun TelaCadastro(
                             }
                         }
                     }
-                    if (buscandoProduto) Text("Buscando no sistema...", fontSize = 12.sp, color = Color.Blue)
+                    if (buscandoProduto && !buscandoWeb) Text("Buscando no banco...", fontSize = 12.sp, color = Color.Blue)
+                    // Indicador de busca na web
+                    if (buscandoWeb) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Buscando na internet...", fontSize = 12.sp, color = Color(0xFF006400))
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
@@ -443,6 +488,26 @@ fun TelaCadastro(
 fun capitalizarTexto(texto: String): String {
     return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
         palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+    }
+}
+
+// --- FUNÇÃO AUXILIAR PARA BAIXAR IMAGEM DA WEB ---
+suspend fun baixarImagemDaUrl(url: String): Bitmap? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val inputStream = URL(url).openStream()
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            // Redimensionar para não pesar no Firebase (ex: max 600px)
+            if (bitmap != null) {
+                val scale = 600.0 / bitmap.width
+                if (scale < 1.0) {
+                    Bitmap.createScaledBitmap(bitmap, 600, (bitmap.height * scale).toInt(), true)
+                } else bitmap
+            } else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 }
 

@@ -20,6 +20,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.compare.model.DadosMercado
@@ -113,9 +114,10 @@ fun DialogoRankingDetalhes(
     onApagarComentario: (String, String) -> Unit,
     onEditarComentario: (String, String, String) -> Unit,
     onAtualizarNomeProduto: (String) -> Unit,
-    onAtualizarNomeMercado: (String, String) -> Unit, // Novo: (nomeAntigo, nomeNovo)
-    onApagarMercado: (String) -> Unit, // Novo
-    onApagarProdutoGlobal: (ProdutoPreco) -> Unit // Novo
+    onAtualizarNomeMercado: (String, String) -> Unit,
+    onApagarMercado: (String) -> Unit,
+    onApagarProdutoGlobal: (ProdutoPreco) -> Unit,
+    onAtualizarCodigoBarras: (String) -> Unit // --- NOVO: Callback para atualizar código ---
 ) {
     val listaOrdenada = grupoOfertas.sortedBy { it.valor }
     val produtoBase = listaOrdenada.first()
@@ -130,20 +132,22 @@ fun DialogoRankingDetalhes(
     var editandoNomeProduto by remember { mutableStateOf(false) }
     var novoNomeProduto by remember { mutableStateOf(produtoBase.nomeProduto) }
 
-    // Estado para Editar Mercado: guarda o NOME do mercado sendo editado
+    // --- NOVO: Estado para editar código de barras ---
+    var editandoCodigoBarras by remember { mutableStateOf(false) }
+    var novoCodigoBarras by remember { mutableStateOf(produtoBase.codigoBarras) }
+
     var mercadoParaEditar by remember { mutableStateOf<String?>(null) }
 
     var textoChat by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
-    // --- DIÁLOGOS DE CONFIRMAÇÃO ---
     var mostrarConfirmacaoApagarProduto by remember { mutableStateOf(false) }
 
-    // 1. Detalhes do Mercado (Visualização)
+    // 1. Detalhes do Mercado
     if (mercadoSelecionado != null) {
         DialogoDadosMercado(nomeMercado = mercadoSelecionado!!, isAdmin = isAdmin, onDismiss = { mercadoSelecionado = null })
     }
-    // 2. Editar Preço da Oferta
+    // 2. Editar Preço
     else if (ofertaEmEdicao != null) {
         DialogoEditarOferta(
             oferta = ofertaEmEdicao!!,
@@ -156,7 +160,7 @@ fun DialogoRankingDetalhes(
         var textoEditado by remember { mutableStateOf(comentarioEmEdicao!!.second.split(": ", limit = 2).getOrElse(1) { "" }) }
         AlertDialog(onDismissRequest = { comentarioEmEdicao = null }, title = { Text("Editar Comentário") }, text = { OutlinedTextField(value = textoEditado, onValueChange = { textoEditado = it }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (textoEditado.isNotBlank()) { onEditarComentario(comentarioEmEdicao!!.first, comentarioEmEdicao!!.second, textoEditado); comentarioEmEdicao = null } }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = { comentarioEmEdicao = null }) { Text("Cancelar") } })
     }
-    // 4. Renomear Produto (Global)
+    // 4. Renomear Produto
     else if (editandoNomeProduto) {
         AlertDialog(
             onDismissRequest = { editandoNomeProduto = false },
@@ -172,7 +176,36 @@ fun DialogoRankingDetalhes(
             dismissButton = { TextButton(onClick = { editandoNomeProduto = false }) { Text("Cancelar") } }
         )
     }
-    // 5. Renomear/Apagar Mercado (Global)
+    // --- NOVO: Editar Código de Barras ---
+    else if (editandoCodigoBarras) {
+        AlertDialog(
+            onDismissRequest = { editandoCodigoBarras = false },
+            title = { Text("Editar Código de Barras") },
+            text = {
+                Column {
+                    Text("Corrija o código se estiver errado. Isso afeta todas as ofertas.", fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = novoCodigoBarras,
+                        onValueChange = { if(it.all { c -> c.isDigit() }) novoCodigoBarras = it },
+                        label = { Text("Novo Código") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (novoCodigoBarras.isNotBlank()) {
+                        onAtualizarCodigoBarras(novoCodigoBarras)
+                        editandoCodigoBarras = false
+                    }
+                }) { Text("Salvar") }
+            },
+            dismissButton = { TextButton(onClick = { editandoCodigoBarras = false }) { Text("Cancelar") } }
+        )
+    }
+    // 5. Renomear/Apagar Mercado
     else if (mercadoParaEditar != null) {
         var novoNomeMercado by remember { mutableStateOf(mercadoParaEditar!!) }
         var confirmandoApagarMercado by remember { mutableStateOf(false) }
@@ -211,7 +244,7 @@ fun DialogoRankingDetalhes(
                             onAtualizarNomeMercado(mercadoParaEditar!!, novoNomeMercado)
                             mercadoParaEditar = null
                         } else {
-                            mercadoParaEditar = null // Só fecha se não mudou
+                            mercadoParaEditar = null
                         }
                     }) { Text("Salvar Alteração") }
                 },
@@ -225,7 +258,7 @@ fun DialogoRankingDetalhes(
             )
         }
     }
-    // 6. Confirmar Apagar Produto Global
+    // 6. Confirmar Apagar Produto
     else if (mostrarConfirmacaoApagarProduto) {
         AlertDialog(
             onDismissRequest = { mostrarConfirmacaoApagarProduto = false },
@@ -243,19 +276,43 @@ fun DialogoRankingDetalhes(
             dismissButton = { TextButton(onClick = { mostrarConfirmacaoApagarProduto = false }) { Text("Cancelar") } }
         )
     }
-    // 7. Tela Principal (Lista de Ofertas)
+    // 7. Lista de Ofertas (PRINCIPAL)
     else {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    if (isAdmin) {
-                        IconButton(onClick = { novoNomeProduto = produtoBase.nomeProduto; editandoNomeProduto = true }) {
-                            Icon(Icons.Default.Edit, "Editar Nome", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                Column {
+                    // Linha do Nome
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        if (isAdmin) {
+                            IconButton(onClick = { novoNomeProduto = produtoBase.nomeProduto; editandoNomeProduto = true }) {
+                                Icon(Icons.Default.Edit, "Editar Nome", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = { mostrarConfirmacaoApagarProduto = true }) {
+                                Icon(Icons.Default.DeleteForever, "Apagar Produto", tint = Color.Red, modifier = Modifier.size(20.dp))
+                            }
                         }
-                        IconButton(onClick = { mostrarConfirmacaoApagarProduto = true }) {
-                            Icon(Icons.Default.DeleteForever, "Apagar Produto", tint = Color.Red, modifier = Modifier.size(20.dp))
+                    }
+                    // --- NOVO: Linha do Código de Barras ---
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (produtoBase.codigoBarras.isNotEmpty()) "Cód: ${produtoBase.codigoBarras}" else "Sem código de barras",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                        if (isAdmin) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Editar Código",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(14.dp).clickable {
+                                    novoCodigoBarras = produtoBase.codigoBarras
+                                    editandoCodigoBarras = true
+                                }
+                            )
                         }
                     }
                 }
@@ -265,7 +322,7 @@ fun DialogoRankingDetalhes(
                     val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
                     if (ofertaComFoto != null) { item { val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64); if (bitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) { Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } } } }
 
-                    items(listaOrdenada, key = { it.id }) { oferta -> // USAR KEY É IMPORTANTE PARA O ESTADO
+                    items(listaOrdenada, key = { it.id }) { oferta ->
                         Column {
                             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
@@ -316,7 +373,6 @@ fun DialogoRankingDetalhes(
     }
 }
 
-// ... Resto do arquivo (DialogoDadosMercado, DialogoLocalizacao, etc.) mantém-se igual ...
 @Composable
 fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()

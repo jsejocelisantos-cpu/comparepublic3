@@ -463,10 +463,8 @@ fun TelaHome(
             isAdmin = isAdmin,
             onDismiss = { grupoSelecionadoParaDetalhes = null },
             onIrCadastro = onIrCadastro,
-            // --- CALLBACKS DE ATUALIZAÇÃO ---
             onDelete = { id ->
                 db.collection("ofertas").document(id).delete().addOnSuccessListener {
-                    // Atualiza a visualização sem fechar, a menos que seja o último item
                     atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first())
                 }
             },
@@ -507,8 +505,6 @@ fun TelaHome(
                     }
                 }
             },
-
-            // --- ADMIN: ATUALIZAR NOME DO PRODUTO (GLOBAL) ---
             onAtualizarNomeProduto = { novoNome ->
                 val nomeCap = capitalizarTextoHelper(novoNome)
                 val palavras = nomeCap.lowercase().split(" ").filter { it.isNotBlank() }
@@ -530,60 +526,92 @@ fun TelaHome(
                     }
                     batch.commit().addOnSuccessListener {
                         Toast.makeText(context, "Produto renomeado com sucesso!", Toast.LENGTH_SHORT).show()
-                        grupoSelecionadoParaDetalhes = null // Fecha para forçar reload da lista principal
+                        grupoSelecionadoParaDetalhes = null
                         carregarProdutos(resetar = true)
                     }
                 }
             },
+            // --- NOVO: ATUALIZAR CÓDIGO DE BARRAS (GLOBAL) ---
+            onAtualizarCodigoBarras = { novoCodigo ->
+                val pBase = grupoSelecionadoParaDetalhes!!.first()
+                val codigoAntigo = pBase.codigoBarras
 
-            // --- ADMIN: ATUALIZAR NOME DO MERCADO (GLOBAL) ---
-            onAtualizarNomeMercado = { nomeAntigo, nomeNovo ->
-                val novoCap = capitalizarTextoHelper(nomeNovo)
+                // Busca ofertas para atualizar
+                val query = if (codigoAntigo.isNotEmpty())
+                    db.collection("ofertas").whereEqualTo("codigoBarras", codigoAntigo)
+                else
+                    db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
 
-                // 1. Busca todas as ofertas com o nome antigo
-                db.collection("ofertas").whereEqualTo("mercado", nomeAntigo).get().addOnSuccessListener { res ->
+                query.get().addOnSuccessListener { result ->
                     val batch = db.batch()
 
-                    // Atualiza ofertas
+                    // 1. Atualiza todas as ofertas
+                    for (doc in result) {
+                        batch.update(doc.reference, "codigoBarras", novoCodigo)
+                    }
+
+                    // 2. Se existia no catálogo, migra para o novo ID
+                    if (codigoAntigo.isNotEmpty()) {
+                        val docRefAntigo = db.collection("produtos_base").document(codigoAntigo)
+                        docRefAntigo.get().addOnSuccessListener { docSnapshot ->
+                            if (docSnapshot.exists()) {
+                                val dados = docSnapshot.data
+                                if (dados != null) {
+                                    val novosDados = dados.toMutableMap()
+                                    novosDados["codigoBarras"] = novoCodigo
+                                    // Cria novo e deleta antigo
+                                    batch.set(db.collection("produtos_base").document(novoCodigo), novosDados)
+                                    batch.delete(docRefAntigo)
+                                }
+                            }
+                            // Commit final
+                            batch.commit().addOnSuccessListener {
+                                Toast.makeText(context, "Código atualizado com sucesso!", Toast.LENGTH_SHORT).show()
+                                grupoSelecionadoParaDetalhes = null
+                                carregarProdutos(resetar = true)
+                            }
+                        }
+                    } else {
+                        // Se não tinha código antes, só commita as atualizações das ofertas
+                        batch.commit().addOnSuccessListener {
+                            Toast.makeText(context, "Código adicionado com sucesso!", Toast.LENGTH_SHORT).show()
+                            grupoSelecionadoParaDetalhes = null
+                            carregarProdutos(resetar = true)
+                        }
+                    }
+                }
+            },
+            onAtualizarNomeMercado = { nomeAntigo, nomeNovo ->
+                val novoCap = capitalizarTextoHelper(nomeNovo)
+                db.collection("ofertas").whereEqualTo("mercado", nomeAntigo).get().addOnSuccessListener { res ->
+                    val batch = db.batch()
                     for (doc in res) {
                         batch.update(doc.reference, "mercado", novoCap)
                     }
-
-                    // 2. Atualiza a coleção de Mercados (Copia e deleta o antigo ID)
                     db.collection("mercados").document(nomeAntigo).get().addOnSuccessListener { docM ->
                         if(docM.exists()) {
                             val dados = docM.toObject(DadosMercado::class.java)!!.copy(nome = novoCap, id = novoCap)
                             batch.set(db.collection("mercados").document(novoCap), dados)
                             batch.delete(db.collection("mercados").document(nomeAntigo))
                         }
-
-                        // 3. Executa tudo
                         batch.commit().addOnSuccessListener {
-                            Toast.makeText(context, "Mercado atualizado em ${res.size()} ofertas!", Toast.LENGTH_SHORT).show()
-
-                            // Lógica para saber se precisamos fechar ou só atualizar
+                            Toast.makeText(context, "Mercado atualizado!", Toast.LENGTH_SHORT).show()
                             val base = grupoSelecionadoParaDetalhes!!.firstOrNull()
                             if (base != null && base.mercado == nomeAntigo) {
-                                // Se a oferta principal (que usamos para abrir o detalhe) mudou de nome, melhor fechar e recarregar
                                 grupoSelecionadoParaDetalhes = null
                                 carregarProdutos(resetar = true)
                             } else if (base != null) {
-                                // Se só mudou um item da lista interna, tenta recarregar
                                 atualizarDetalhesAbertos(base)
                             }
                         }
                     }
                 }
             },
-
-            // --- ADMIN: APAGAR MERCADO (COLEÇÃO) ---
             onApagarMercado = { nomeMercado ->
                 db.collection("mercados").document(nomeMercado).delete().addOnSuccessListener {
                     Toast.makeText(context, "Cadastro do Mercado Excluído!", Toast.LENGTH_SHORT).show()
                 }
             },
-
-            // --- ADMIN: APAGAR PRODUTO GLOBAL ---
             onApagarProdutoGlobal = { produto ->
                 val query = if(produto.codigoBarras.isNotEmpty())
                     db.collection("ofertas").whereEqualTo("codigoBarras", produto.codigoBarras)
@@ -592,14 +620,10 @@ fun TelaHome(
 
                 query.get().addOnSuccessListener { res ->
                     val batch = db.batch()
-                    // Deleta todas as ofertas
                     for(d in res) batch.delete(d.reference)
-
-                    // Deleta do catálogo base se existir código de barras
                     if(produto.codigoBarras.isNotEmpty()) {
                         batch.delete(db.collection("produtos_base").document(produto.codigoBarras))
                     }
-
                     batch.commit().addOnSuccessListener {
                         Toast.makeText(context, "Produto e ofertas excluídos!", Toast.LENGTH_SHORT).show()
                         grupoSelecionadoParaDetalhes = null
@@ -613,7 +637,6 @@ fun TelaHome(
     if (mostrarDialogoFiltro) DialogoLocalizacao(onDismiss = { mostrarDialogoFiltro = false }, onConfirmar = { est, cid -> onMudarFiltro(est, cid); mostrarDialogoFiltro = false })
 }
 
-// Helper para capitalizar (caso não tenha acesso ao de TelaCadastro)
 fun capitalizarTextoHelper(texto: String): String {
     return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
         palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
