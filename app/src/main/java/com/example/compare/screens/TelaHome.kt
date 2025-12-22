@@ -293,7 +293,7 @@ fun TelaHome(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(painter = painterResource(id = R.drawable.logohome2), contentDescription = "Logo", modifier = Modifier.size(180.dp))
+                        Image(painter = painterResource(id = R.drawable.logohome2), contentDescription = "Logo", modifier = Modifier.size(180.dp)) // Personalize: Tamanho do logo
                         Spacer(modifier = Modifier.width(8.dp))
                         Column { Text(cidadeAtual, fontSize = 12.sp, fontWeight = FontWeight.Normal) }
                     }
@@ -308,12 +308,19 @@ fun TelaHome(
                         DropdownMenuItem(text = { Text("Sobre o App") }, onClick = { menuExpandido = false; mostrarSobre = true })
                         DropdownMenuItem(text = { Text("Suporte") }, onClick = { menuExpandido = false; mostrarSuporte = true })
                         Divider()
-                        DropdownMenuItem(text = { Text("Sair", color = Color.Red) }, onClick = { menuExpandido = false; onSair() })
+                        DropdownMenuItem(text = { Text("Sair", color = Color.Red) }, onClick = { menuExpandido = false; onSair() }) // Personalize: Cor do texto Sair
                     }
                 }
             )
         },
-        floatingActionButton = { FloatingActionButton(onClick = { onIrCadastro(null) }) { Icon(Icons.Default.Add, "Adicionar") } }
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { onIrCadastro(null) },
+                containerColor = MaterialTheme.colorScheme.primary // Personalize: Cor do botão flutuante (+), ex: Color.Blue
+            ) {
+                Icon(Icons.Default.Add, "Adicionar", tint = Color.White) // Personalize: Cor do ícone +
+            }
+        }
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -329,7 +336,9 @@ fun TelaHome(
                     // BARRA DE BUSCA
                     Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
                         OutlinedTextField(
-                            value = textoBusca, onValueChange = { textoBusca = it }, label = { Text("Buscar produto...") }, leadingIcon = { Icon(Icons.Default.Search, null) },
+                            value = textoBusca, onValueChange = { textoBusca = it },
+                            label = { Text("Buscar produto...") }, // Personalize: Texto de dica da busca
+                            leadingIcon = { Icon(Icons.Default.Search, null) },
                             trailingIcon = {
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
@@ -380,8 +389,8 @@ fun TelaHome(
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
                                             if (melhorOferta.valor > 0) {
-                                                Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                                Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
+                                                Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) // Personalize: Cor do Preço
+                                                Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4)) // Personalize: Cor do nome do Mercado
                                             } else {
                                                 Text("Catálogo", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                                             }
@@ -390,23 +399,24 @@ fun TelaHome(
                                             Row {
                                                 // LÁPIS (EDITAR/ADICIONAR PREÇO)
                                                 IconButton(onClick = {
-                                                    // --- CORREÇÃO FUNDAMENTAL: ---
-                                                    // Limpa ID, Mercado e Valor para garantir que seja um NOVO registro
+                                                    // --- CORREÇÃO APLICADA: ---
+                                                    // Ao clicar no lápis, forçamos o mercado a ser VAZIO ("") para que
+                                                    // o usuário tenha que selecionar o mercado atual manualmente.
                                                     onIrCadastro(melhorOferta.copy(
-                                                        id = "",          // FORÇA CRIAR NOVO
-                                                        mercado = "",     // FORÇA MEMÓRIA DE MERCADO
+                                                        id = "",          // FORÇA CRIAR NOVO REGISTRO
+                                                        mercado = "",     // <--- FORÇA VAZIO: Usuário seleciona manualmente
                                                         valor = 0.0,      // FORÇA DIGITAR PREÇO
                                                         usuarioId = ""
                                                     ))
                                                 }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
+                                                    Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary) // Personalize: Cor do ícone lápis
                                                 }
 
                                                 Spacer(modifier = Modifier.width(8.dp))
 
                                                 // CARRINHO
                                                 IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
+                                                    Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary) // Personalize: Cor do ícone carrinho
                                                 }
                                             }
                                         }

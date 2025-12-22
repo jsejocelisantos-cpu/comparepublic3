@@ -158,7 +158,20 @@ fun DialogoRankingDetalhes(grupoOfertas: List<ProdutoPreco>, usuarioLogado: Stri
                     Spacer(modifier = Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(value = textoChat, onValueChange = { textoChat = it }, placeholder = { Text("Escreva um comentário...", fontSize = 12.sp) }, modifier = Modifier.weight(1f).height(56.dp), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } })); IconButton(onClick = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) } }
                 }
             }
-        }, confirmButton = { Button(onClick = { onDismiss(); onIrCadastro(produtoBase) }) { Text("Adicionar Outro Mercado") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
+        },
+            confirmButton = {
+                // --- ATUALIZADO: Limpa o mercado para permitir seleção manual ---
+                Button(onClick = {
+                    onDismiss()
+                    onIrCadastro(produtoBase.copy(
+                        id = "",          // Novo ID
+                        mercado = "",     // VAZIO: Usuário seleciona manualmente
+                        valor = 0.0,      // Reseta valor
+                        usuarioId = ""    // Reseta usuário
+                    ))
+                }) { Text("Adicionar Outro Mercado") }
+            },
+            dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
     }
 }
 
