@@ -68,9 +68,9 @@ fun TelaCadastro(
     produtoPreenchido: ProdutoPreco?,
     estadoPre: String,
     cidadePre: String,
-    ultimoMercado: String, // Recebe o último mercado usado na sessão
+    ultimoMercado: String, // Recebe a memória do último mercado usado
     onVoltar: () -> Unit,
-    onSalvar: (String) -> Unit // Retorna o nome do mercado salvo para a memória
+    onSalvar: (String) -> Unit // Devolve o mercado atual para a memória
 ) {
     val db = FirebaseFirestore.getInstance()
     val context = LocalContext.current
@@ -81,10 +81,8 @@ fun TelaCadastro(
     var codigoBarras by remember { mutableStateOf(produtoPreenchido?.codigoBarras ?: "") }
     var nomeProduto by remember { mutableStateOf(produtoPreenchido?.nomeProduto ?: "") }
 
-    // Preço com formatação automática (Money Mask)
-    // Se vier valor 0.0 (catálogo), inicia vazio para obrigar digitação
+    // --- LÓGICA DE PREÇO COM MÁSCARA (R$) ---
     var valorRaw by remember { mutableStateOf(if (produtoPreenchido != null && produtoPreenchido.valor > 0) (produtoPreenchido.valor * 100).toLong().toString() else "") }
-
     val valorFormatado = remember(valorRaw) {
         try {
             val v = valorRaw.toLongOrNull() ?: 0L
@@ -93,20 +91,14 @@ fun TelaCadastro(
         } catch (e: Exception) { "" }
     }
 
-    // --- LÓGICA DO MERCADO ---
-    // 1. Se produtoPreenchido.mercado tem texto, é edição ou oferta existente -> Usa ele.
-    // 2. Se produtoPreenchido.mercado está vazio (veio do botão lápis do catálogo) -> Usa "" para o usuário digitar.
-    // 3. Se é um cadastro totalmente novo (sem produtoPreenchido) -> Usa ultimoMercado.
+    // --- LÓGICA INTELIGENTE DO MERCADO ---
+    // 1. Edição/Oferta existente: Usa o mercado que veio.
+    // 2. Novo Cadastro ou Vindo do Catálogo (vazio): Usa o ÚLTIMO MERCADO da memória.
     var mercado by remember {
         mutableStateOf(
-            if (produtoPreenchido != null) produtoPreenchido.mercado // Pode ser "" se veio do catálogo
-            else ultimoMercado // Novo cadastro usa a memória
+            if (produtoPreenchido?.mercado?.isNotEmpty() == true) produtoPreenchido.mercado else ultimoMercado
         )
     }
-
-    // Se o mercado veio vazio (ex: do catálogo) mas temos memória, sugerimos a memória?
-    // A lógica acima respeita o "em branco" vindo da Home. Se quiser forçar a memória quando vier em branco do catálogo, avise.
-    // Por enquanto: Se veio do catálogo (lápis), vem vazio. Se veio "Novo" (botão +), vem null e pega a memória.
 
     var comentario by remember { mutableStateOf(produtoPreenchido?.comentario ?: "") }
 
@@ -115,7 +107,7 @@ fun TelaCadastro(
     var mostrarCamera by remember { mutableStateOf(false) }
     var mostrarOpcoesFoto by remember { mutableStateOf(false) }
 
-    // Launcher para abrir a Galeria
+    // Launcher para abrir a Galeria do celular
     val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             try {
@@ -126,7 +118,7 @@ fun TelaCadastro(
                     val source = ImageDecoder.createSource(context.contentResolver, uri)
                     ImageDecoder.decodeBitmap(source)
                 }
-                // Redimensiona imagem da galeria
+                // Redimensiona imagem da galeria (importante para o Firebase)
                 val scaled = Bitmap.createScaledBitmap(bitmap, 600, (600.0 * bitmap.height / bitmap.width).toInt(), true)
                 fotoBase64 = bitmapParaString(scaled)
             } catch (e: Exception) {
@@ -136,24 +128,22 @@ fun TelaCadastro(
     }
 
     // --- LOCALIZAÇÃO E MERCADOS ---
-    // Usa a localização passada pela Home automaticamente
+    // Usa automaticamente o que veio da Home
     val estadoSelecionado = if (produtoPreenchido?.estado?.isNotEmpty() == true) produtoPreenchido.estado else estadoPre
     val cidadeSelecionada = if (produtoPreenchido?.cidade?.isNotEmpty() == true) produtoPreenchido.cidade else cidadePre
 
     var listaMercados by remember { mutableStateOf(listOf<String>()) }
     var expandirMercado by remember { mutableStateOf(false) }
 
-    // Filtro de Mercados (Digitar ou Seta)
     val sugestoesMercado = remember(mercado, listaMercados) {
         if (mercado.isBlank()) listaMercados
         else listaMercados.filter { it.contains(mercado, ignoreCase = true) }
     }
 
-    // Controles de UI
     var salvando by remember { mutableStateOf(false) }
     var buscandoProduto by remember { mutableStateOf(false) }
 
-    // --- BUSCA AUTOMÁTICA (CATÁLOGO + OFERTAS) ---
+    // --- BUSCA AUTOMÁTICA (CATÁLOGO + HISTÓRICO) ---
     LaunchedEffect(codigoBarras) {
         if (codigoBarras.length >= 8 && nomeProduto.isEmpty() && !buscandoProduto) {
             buscandoProduto = true
@@ -183,7 +173,6 @@ fun TelaCadastro(
 
     // --- CARREGAR MERCADOS (TODOS) ---
     LaunchedEffect(Unit) {
-        // Busca todos os mercados para garantir compatibilidade com dados antigos que não têm cidade
         db.collection("mercados").get().addOnSuccessListener { res ->
             listaMercados = res.documents.mapNotNull { it.getString("nome") }.sorted()
         }
@@ -200,11 +189,11 @@ fun TelaCadastro(
         )
     } else {
 
-        // --- DIALOG DE OPÇÕES DE FOTO ---
+        // --- DIALOG DE ESCOLHA (FOTO OU GALERIA) ---
         if (mostrarOpcoesFoto) {
             AlertDialog(
                 onDismissRequest = { mostrarOpcoesFoto = false },
-                title = { Text("Escolher Foto") },
+                title = { Text("Adicionar Imagem") },
                 text = {
                     Column {
                         ListItem(
@@ -213,7 +202,7 @@ fun TelaCadastro(
                             modifier = Modifier.clickable { mostrarOpcoesFoto = false; mostrarCamera = true }
                         )
                         ListItem(
-                            headlineContent = { Text("Galeria") },
+                            headlineContent = { Text("Escolher da Galeria") },
                             leadingContent = { Icon(Icons.Default.PhotoLibrary, null) },
                             modifier = Modifier.clickable { mostrarOpcoesFoto = false; galleryLauncher.launch("image/*") }
                         )
@@ -223,7 +212,7 @@ fun TelaCadastro(
             )
         }
 
-        // --- FORMULÁRIO ---
+        // --- FORMULÁRIO PRINCIPAL ---
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -239,7 +228,7 @@ fun TelaCadastro(
         ) { padding ->
             LazyColumn(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
 
-                // 1. LINHA TOPO: SCANNER + FOTO
+                // 1. LINHA TOPO: SCANNER + FOTO (Layout Clássico)
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
@@ -249,7 +238,7 @@ fun TelaCadastro(
                             modifier = Modifier.weight(1f),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             trailingIcon = {
-                                // Ícone do Scanner Quadrado e Maior (60dp)
+                                // Ícone do Scanner: Quadrado, Grande e Clicável
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode),
                                     contentDescription = "Scan",
@@ -287,7 +276,7 @@ fun TelaCadastro(
                             }
                         }
                     }
-                    if (buscandoProduto) Text("Buscando...", fontSize = 12.sp, color = Color.Blue)
+                    if (buscandoProduto) Text("Buscando no sistema...", fontSize = 12.sp, color = Color.Blue)
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
@@ -342,7 +331,7 @@ fun TelaCadastro(
                             modifier = Modifier.fillMaxWidth(0.9f).heightIn(max = 200.dp)
                         ) {
                             if (sugestoesMercado.isEmpty()) {
-                                DropdownMenuItem(text = { Text(if(listaMercados.isEmpty()) "Carregando..." else "Novo Mercado (Digite o nome)", color = Color.Gray) }, onClick = { })
+                                DropdownMenuItem(text = { Text(if(listaMercados.isEmpty()) "Carregando..." else "Novo Mercado", color = Color.Gray) }, onClick = { })
                             } else {
                                 sugestoesMercado.forEach { m ->
                                     DropdownMenuItem(text = { Text(m) }, onClick = { mercado = m; expandirMercado = false })
@@ -364,12 +353,12 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // 6. BOTÃO SALVAR
+                // 6. BOTÃO SALVAR (COM LÓGICA DE DUPLICIDADE)
                 item {
                     Button(
                         onClick = {
                             if (nomeProduto.isBlank() || valorRaw.isBlank() || mercado.isBlank()) {
-                                Toast.makeText(context, "Preencha nome, preço e mercado!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Preencha tudo!", Toast.LENGTH_SHORT).show()
                             } else if (temOfensa(nomeProduto) || temOfensa(comentario) || temOfensa(mercado)) {
                                 Toast.makeText(context, "Conteúdo impróprio.", Toast.LENGTH_SHORT).show()
                             } else {
@@ -380,31 +369,60 @@ fun TelaCadastro(
                                 val nomeBonito = capitalizarTexto(nomeProduto)
                                 val mercadoBonito = capitalizarTexto(mercado)
 
-                                val nova = ProdutoPreco(
-                                    id = produtoPreenchido?.id ?: "",
-                                    usuarioId = usuarioNome,
-                                    nomeProduto = nomeBonito,
-                                    nomePesquisa = nomeBonito.lowercase(),
-                                    mercado = mercadoBonito,
-                                    valor = valorFinal,
-                                    data = Date(),
-                                    codigoBarras = codigoBarras,
-                                    fotoBase64 = fotoBase64,
-                                    comentario = comentario,
-                                    estado = estadoSelecionado,
-                                    cidade = cidadeSelecionada
-                                )
+                                // --- VERIFICAÇÃO DE DUPLICIDADE NO BANCO ---
+                                val ofertasRef = db.collection("ofertas")
 
-                                val ref = if (produtoPreenchido == null || produtoPreenchido.id.isEmpty()) db.collection("ofertas").document() else db.collection("ofertas").document(nova.id)
-                                val ofertaFinal = if (produtoPreenchido == null || produtoPreenchido.id.isEmpty()) nova.copy(id = ref.id) else nova
+                                // Busca se JÁ EXISTE esse produto nesse mercado
+                                ofertasRef
+                                    .whereEqualTo("codigoBarras", codigoBarras)
+                                    .whereEqualTo("mercado", mercadoBonito)
+                                    .get()
+                                    .addOnSuccessListener { querySnapshot ->
 
-                                ref.set(ofertaFinal).addOnSuccessListener {
-                                    // Salva mercado também (garante que existe na lista futura)
-                                    db.collection("mercados").document(mercadoBonito).set(DadosMercado(mercadoBonito, mercadoBonito, "", "", "", cidadeSelecionada))
-                                    Toast.makeText(context, "Salvo com sucesso!", Toast.LENGTH_SHORT).show()
-                                    // Retorna o mercado salvo para a MainActivity lembrar
-                                    onSalvar(mercadoBonito)
-                                }
+                                        // 1. Se achou oferta IGUAL, pega o ID dela para sobrescrever.
+                                        // 2. Se não achou, mas temos um ID vindo da tela anterior (edição), usa ele.
+                                        // 3. Se não, é um cadastro novo (ID vazio).
+                                        val idParaSalvar = if (!querySnapshot.isEmpty) {
+                                            querySnapshot.documents[0].id // Sobrescreve existente
+                                        } else if (produtoPreenchido?.id?.isNotEmpty() == true) {
+                                            produtoPreenchido.id // Edição direta
+                                        } else {
+                                            "" // Cria novo
+                                        }
+
+                                        val nova = ProdutoPreco(
+                                            id = idParaSalvar, // O ID real é definido no set/add
+                                            usuarioId = usuarioNome,
+                                            nomeProduto = nomeBonito,
+                                            nomePesquisa = nomeBonito.lowercase(),
+                                            mercado = mercadoBonito,
+                                            valor = valorFinal,
+                                            data = Date(),
+                                            codigoBarras = codigoBarras,
+                                            fotoBase64 = fotoBase64,
+                                            comentario = comentario,
+                                            estado = estadoSelecionado,
+                                            cidade = cidadeSelecionada
+                                        )
+
+                                        // Se tem ID, atualiza (.document(id)). Se não, cria (.document()).
+                                        val docRef = if (idParaSalvar.isNotEmpty()) ofertasRef.document(idParaSalvar) else ofertasRef.document()
+
+                                        // Salva garantindo que o campo 'id' dentro do objeto seja igual ao do documento
+                                        docRef.set(nova.copy(id = docRef.id)).addOnSuccessListener {
+                                            // Salva mercado também (para popular lista futura)
+                                            db.collection("mercados").document(mercadoBonito).set(DadosMercado(mercadoBonito, mercadoBonito, "", "", "", cidadeSelecionada))
+
+                                            Toast.makeText(context, if(idParaSalvar.isNotEmpty()) "Oferta atualizada!" else "Oferta criada!", Toast.LENGTH_SHORT).show()
+
+                                            // Retorna o mercado salvo para a MainActivity lembrar
+                                            onSalvar(mercadoBonito)
+                                        }
+                                    }
+                                    .addOnFailureListener {
+                                        salvando = false
+                                        Toast.makeText(context, "Erro ao verificar duplicidade", Toast.LENGTH_SHORT).show()
+                                    }
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -460,7 +478,7 @@ fun CameraPreview(onFotoTirada: (Bitmap) -> Unit, onFechar: () -> Unit) {
                         val b = i.toBitmap()
                         // Redimensiona para economizar espaço no Firebase (Max 1MB é o limite de segurança)
                         val s = android.graphics.Bitmap.createScaledBitmap(b, 600, (600.0 * b.height / b.width).toInt(), true)
-                        // Corrige rotação (comum em Samsung/Motorola)
+                        // Corrige rotação
                         val m = android.graphics.Matrix()
                         m.postRotate(i.imageInfo.rotationDegrees.toFloat())
                         onFotoTirada(android.graphics.Bitmap.createBitmap(s, 0, 0, s.width, s.height, m, true))

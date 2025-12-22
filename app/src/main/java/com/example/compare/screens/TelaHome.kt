@@ -388,17 +388,23 @@ fun TelaHome(
 
                                             // --- BOTÕES DE AÇÃO ---
                                             Row {
-                                                // Se for item do catálogo (sem preço), mostra o LÁPIS
-                                                if (melhorOferta.valor == 0.0 && melhorOferta.mercado == "Catálogo Global") {
-                                                    IconButton(onClick = {
-                                                        // --- CORREÇÃO: Limpa o ID para criar NOVO registro no Firebase ---
-                                                        onIrCadastro(melhorOferta.copy(mercado = "", id = ""))
-                                                    }, modifier = Modifier.size(30.dp)) {
-                                                        Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
-                                                    }
-                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                // LÁPIS (EDITAR/ADICIONAR PREÇO)
+                                                IconButton(onClick = {
+                                                    // --- CORREÇÃO FUNDAMENTAL: ---
+                                                    // Limpa ID, Mercado e Valor para garantir que seja um NOVO registro
+                                                    onIrCadastro(melhorOferta.copy(
+                                                        id = "",          // FORÇA CRIAR NOVO
+                                                        mercado = "",     // FORÇA MEMÓRIA DE MERCADO
+                                                        valor = 0.0,      // FORÇA DIGITAR PREÇO
+                                                        usuarioId = ""
+                                                    ))
+                                                }, modifier = Modifier.size(30.dp)) {
+                                                    Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
                                                 }
 
+                                                Spacer(modifier = Modifier.width(8.dp))
+
+                                                // CARRINHO
                                                 IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
                                                     Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
                                                 }
