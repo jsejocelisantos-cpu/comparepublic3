@@ -305,7 +305,7 @@ fun TelaHome(
                             trailingIcon = {
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
-                                    modifier = Modifier.size(50.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
+                                    modifier = Modifier.size(60.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
                                         scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null) { textoBusca = rawValue; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() } }
                                             .addOnFailureListener { Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show() }
                                     }
