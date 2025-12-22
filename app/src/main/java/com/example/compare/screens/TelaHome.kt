@@ -235,6 +235,7 @@ fun TelaHome(
                         // --- PRODUTO NÃO ENCONTRADO EM LUGAR NENHUM ---
                         if (todosProdutos.isEmpty()) {
                             Toast.makeText(context, "Produto não cadastrado. Cadastre agora!", Toast.LENGTH_LONG).show()
+                            // Abre o cadastro limpando o ID para criar um novo
                             onIrCadastro(ProdutoPreco(
                                 codigoBarras = termoBusca,
                                 nomeProduto = "",
@@ -242,7 +243,7 @@ fun TelaHome(
                                 valor = 0.0,
                                 data = Date(),
                                 cidade = "",
-                                id = "",
+                                id = "", // Garante que é novo
                                 usuarioId = ""
                             ))
                         }
@@ -332,7 +333,7 @@ fun TelaHome(
                             trailingIcon = {
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
-                                    modifier = Modifier.size(60.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
+                                    modifier = Modifier.size(50.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
                                         scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null) { textoBusca = rawValue; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() } }
                                             .addOnFailureListener { Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show() }
                                     }
@@ -387,13 +388,12 @@ fun TelaHome(
 
                                             // --- BOTÕES DE AÇÃO ---
                                             Row {
-                                                // Se for item do catálogo (sem preço), mostra o LÁPIS para cadastrar preço
+                                                // Se for item do catálogo (sem preço), mostra o LÁPIS
                                                 if (melhorOferta.valor == 0.0 && melhorOferta.mercado == "Catálogo Global") {
                                                     IconButton(onClick = {
-                                                        // IMPORTANTE: Envia mercado = "" para acionar a memória do último mercado na TelaCadastro
-                                                        onIrCadastro(melhorOferta.copy(mercado = ""))
+                                                        // --- CORREÇÃO: Limpa o ID para criar NOVO registro no Firebase ---
+                                                        onIrCadastro(melhorOferta.copy(mercado = "", id = ""))
                                                     }, modifier = Modifier.size(30.dp)) {
-                                                        // PERSONALIZAÇÃO: Cor do Lápis
                                                         Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
                                                     }
                                                     Spacer(modifier = Modifier.width(8.dp))
