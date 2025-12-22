@@ -61,11 +61,14 @@ fun TelaHome(
     onMudarFiltro: (String, String) -> Unit,
     onIrCadastro: (ProdutoPreco?) -> Unit,
     onIrAdmin: () -> Unit,
-    onIrListaCompras: () -> Unit, // <--- NOVO PARÂMETRO
+    onIrListaCompras: () -> Unit,
     onSair: () -> Unit
 ) {
     var textoBusca by remember { mutableStateOf("") }
     val todosProdutos = remember { mutableStateListOf<ProdutoPreco>() }
+
+    // --- VARIÁVEL QUE FALTAVA ---
+    var isRefreshing by remember { mutableStateOf(false) }
 
     var sugestoesBusca by remember { mutableStateOf(emptyList<String>()) }
     var expandirSugestoes by remember { mutableStateOf(false) }
@@ -86,11 +89,8 @@ fun TelaHome(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-
-    // Inicializa o Scanner do Google
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
-    // --- FUNÇÃO PARA ADICIONAR AO CARRINHO (NOVO) ---
     fun adicionarAoCarrinho(produto: ProdutoPreco) {
         val item = ItemLista(
             usuarioId = usuarioLogado,
@@ -99,7 +99,6 @@ fun TelaHome(
             quantidade = 1,
             comprado = false
         )
-        // Verifica se já existe para somar quantidade ou cria novo
         db.collection("lista_compras")
             .whereEqualTo("usuarioId", usuarioLogado)
             .whereEqualTo("nomeProduto", produto.nomeProduto)
@@ -109,31 +108,39 @@ fun TelaHome(
                     val id = res.documents[0].id
                     val qtdAtual = res.documents[0].getLong("quantidade") ?: 1
                     db.collection("lista_compras").document(id).update("quantidade", qtdAtual + 1)
-                    Toast.makeText(context, "${produto.nomeProduto}: +1 na lista", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "+1 ${produto.nomeProduto}", Toast.LENGTH_SHORT).show()
                 } else {
                     db.collection("lista_compras").add(item)
-                    Toast.makeText(context, "${produto.nomeProduto} adicionado à lista!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Adicionado à lista!", Toast.LENGTH_SHORT).show()
                 }
             }
     }
 
-    // --- LÓGICA DE AUTOCOMPLETE ---
     LaunchedEffect(textoBusca) {
         if (textoBusca.length >= 3) {
             delay(500)
             val termo = textoBusca.lowercase()
+
             db.collection("ofertas")
                 .whereGreaterThanOrEqualTo("nomePesquisa", termo)
                 .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
-                .limit(5).get().addOnSuccessListener { res ->
-                    val nomes = res.documents.mapNotNull { it.getString("nomeProduto") }.distinct()
-                    if (nomes.isNotEmpty()) { sugestoesBusca = nomes; expandirSugestoes = true }
-                    else { expandirSugestoes = false }
+                .limit(5).get().addOnSuccessListener { resOfertas ->
+                    val nomes = resOfertas.documents.mapNotNull { it.getString("nomeProduto") }.toMutableList()
+
+                    db.collection("produtos_base")
+                        .whereGreaterThanOrEqualTo("nomePesquisa", termo)
+                        .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
+                        .limit(5).get().addOnSuccessListener { resBase ->
+                            val nomesBase = resBase.documents.mapNotNull { it.getString("nomeProduto") }
+                            nomes.addAll(nomesBase)
+                            val nomesUnicos = nomes.distinct()
+                            if (nomesUnicos.isNotEmpty()) { sugestoesBusca = nomesUnicos; expandirSugestoes = true }
+                            else { expandirSugestoes = false }
+                        }
                 }
         } else { expandirSugestoes = false }
     }
 
-    // --- BACK HANDLER ---
     var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
     BackHandler(enabled = true) {
         if (textoBusca.isNotEmpty()) {
@@ -146,7 +153,7 @@ fun TelaHome(
                     } catch (e: Exception) {}
                 }
                 if(!result.isEmpty) ultimoDocumento = result.documents[result.size() - 1]; carregandoMais = false
-            }.addOnFailureListener { carregandoMais = false }
+            }
         } else if (grupoSelecionadoParaDetalhes != null) {
             grupoSelecionadoParaDetalhes = null
         } else {
@@ -156,18 +163,6 @@ fun TelaHome(
             }
         }
     }
-
-    // --- MONITOR DE ATIVIDADE ---
-    LaunchedEffect(usuarioLogado) {
-        if (usuarioLogado != "Administrador" && usuarioLogado != "anonimo" && usuarioLogado.isNotBlank()) {
-            while (true) {
-                try { db.collection("usuarios").document(usuarioLogado).update("ultimoAcesso", Date()).addOnFailureListener { db.collection("usuarios").document(usuarioLogado).set(Usuario(nome = usuarioLogado, ultimoAcesso = Date())) } } catch (e: Exception) { }
-                delay(30000)
-            }
-        }
-    }
-
-    var isRefreshing by remember { mutableStateOf(false) }
 
     fun carregarProdutos(resetar: Boolean = false, onConcluido: () -> Unit = {}) {
         if (carregandoMais) { onConcluido(); return }
@@ -197,18 +192,50 @@ fun TelaHome(
     fun buscarNoBanco(onConcluido: () -> Unit = {}) {
         expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
-        carregandoMais = true; todosProdutos.clear(); val termoBusca = textoBusca.lowercase()
-        val query = if (termoBusca.all { it.isDigit() }) {
+
+        carregandoMais = true
+        todosProdutos.clear()
+
+        val termoBusca = textoBusca.lowercase()
+        val isBarcode = termoBusca.all { it.isDigit() } && termoBusca.length > 5
+
+        val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
             db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff").limit(20)
         }
-        query.get().addOnSuccessListener { res ->
-            for(doc in res) {
+
+        queryOfertas.get().addOnSuccessListener { resOfertas ->
+            for(doc in resOfertas) {
                 val p = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
                 if (p.cidade.equals(cidadeAtual, ignoreCase = true) || p.cidade.isEmpty()) todosProdutos.add(p)
             }
-            carregandoMais = false; temMais = false; onConcluido()
+
+            if (isBarcode) {
+                db.collection("produtos_base").document(termoBusca).get().addOnSuccessListener { docBase ->
+                    if (docBase.exists()) {
+                        val nome = docBase.getString("nomeProduto") ?: ""
+                        val codigo = docBase.getString("codigoBarras") ?: ""
+                        val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
+                        if (todosProdutos.none { it.codigoBarras == codigo }) todosProdutos.add(prodCatalogo)
+                    }
+                    carregandoMais = false; temMais = false; onConcluido()
+                }
+            } else {
+                db.collection("produtos_base")
+                    .whereGreaterThanOrEqualTo("nomePesquisa", termoBusca)
+                    .whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff")
+                    .limit(10)
+                    .get().addOnSuccessListener { resBase ->
+                        for (doc in resBase) {
+                            val nome = doc.getString("nomeProduto") ?: ""
+                            val codigo = doc.getString("codigoBarras") ?: ""
+                            val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
+                            if (todosProdutos.none { it.nomeProduto == nome }) todosProdutos.add(prodCatalogo)
+                        }
+                        carregandoMais = false; temMais = false; onConcluido()
+                    }
+            }
         }.addOnFailureListener { carregandoMais = false; onConcluido() }
     }
 
@@ -220,6 +247,10 @@ fun TelaHome(
     }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
+        if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") {
+            Toast.makeText(context, "Item do catálogo. Use + para adicionar à lista.", Toast.LENGTH_SHORT).show()
+            return
+        }
         carregandoDetalhes = true
         val query = if (produtoBase.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", produtoBase.nomeProduto)
         query.get().addOnSuccessListener { result ->
@@ -242,12 +273,7 @@ fun TelaHome(
                 actions = {
                     IconButton(onClick = { menuExpandido = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(expanded = menuExpandido, onDismissRequest = { menuExpandido = false }) {
-                        // NOVO BOTÃO NO MENU
-                        DropdownMenuItem(
-                            text = { Text("Lista de Compras") },
-                            leadingIcon = { Icon(Icons.Default.ShoppingCart, null) },
-                            onClick = { menuExpandido = false; onIrListaCompras() }
-                        )
+                        DropdownMenuItem(text = { Text("Lista de Compras") }, leadingIcon = { Icon(Icons.Default.ShoppingCart, null) }, onClick = { menuExpandido = false; onIrListaCompras() })
                         DropdownMenuItem(text = { Text("Alterar Cidade") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, onClick = { menuExpandido = false; mostrarDialogoFiltro = true })
                         Divider()
                         if(isAdmin) DropdownMenuItem(text = { Text("Painel Admin") }, onClick = { menuExpandido = false; onIrAdmin() })
@@ -261,10 +287,15 @@ fun TelaHome(
         },
         floatingActionButton = { FloatingActionButton(onClick = { onIrCadastro(null) }) { Icon(Icons.Default.Add, "Adicionar") } }
     ) { padding ->
+        // COMPONENTE CORRETO DA VERSÃO 1.3+
         PullToRefreshBox(
-            modifier = Modifier.padding(padding),
             isRefreshing = isRefreshing,
-            onRefresh = { isRefreshing = true; if (textoBusca.isNotBlank()) buscarNoBanco { isRefreshing = false } else carregarProdutos(resetar = true) { isRefreshing = false } }
+            onRefresh = {
+                isRefreshing = true
+                if (textoBusca.isNotBlank()) buscarNoBanco { isRefreshing = false }
+                else carregarProdutos(resetar = true) { isRefreshing = false }
+            },
+            modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Column {
@@ -295,13 +326,12 @@ fun TelaHome(
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(grupos.keys.toList()) { chave ->
                             val listaDoGrupo = grupos[chave] ?: emptyList()
-                            val melhorOferta = listaDoGrupo.minByOrNull { it.valor }
-                            val totalOfertas = listaDoGrupo.size
+                            val melhorOferta = listaDoGrupo.minByOrNull { if (it.valor > 0) it.valor else Double.MAX_VALUE }
+                            val totalOfertas = listaDoGrupo.filter { it.valor > 0 }.size
 
                             if (melhorOferta != null) {
                                 Card(modifier = Modifier.padding(8.dp).fillMaxWidth().clickable { carregarDetalhesCompletos(melhorOferta) }, elevation = CardDefaults.cardElevation(4.dp)) {
                                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        // ÁREA DA FOTO
                                         val ofertaComFoto = listaDoGrupo.firstOrNull { it.fotoBase64.isNotEmpty() }
                                         if(ofertaComFoto != null){
                                             val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64)
@@ -310,20 +340,22 @@ fun TelaHome(
                                                 Spacer(modifier = Modifier.width(10.dp))
                                             }
                                         }
-
-                                        // TEXTOS
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(text = melhorOferta.nomeProduto, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                            Text(text = "Ver $totalOfertas preços", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
-                                            Text(text = "Atualizado: ${formatarData(melhorOferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                            if (melhorOferta.valor > 0) {
+                                                Text(text = "Ver $totalOfertas preços", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                                                Text(text = "Atualizado: ${formatarData(melhorOferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                            } else {
+                                                Text(text = "Sem ofertas cadastradas", style = MaterialTheme.typography.bodySmall, color = Color.Gray, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                                            }
                                         }
-
-                                        // PREÇO E BOTÃO CARRINHO
                                         Column(horizontalAlignment = Alignment.End) {
-                                            Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                            Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
-
-                                            // NOVO: BOTÃO ADICIONAR AO CARRINHO
+                                            if (melhorOferta.valor > 0) {
+                                                Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
+                                            } else {
+                                                Text("Catálogo", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                                            }
                                             IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
                                                 Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
                                             }
@@ -332,7 +364,7 @@ fun TelaHome(
                                 }
                             }
                         }
-                        item { if (temMais) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { if (carregandoMais) CircularProgressIndicator() else Button(onClick = { carregarProdutos() }) { Text("Carregar mais") } } } }
+                        item { if (temMais && !carregandoMais) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Button(onClick = { carregarProdutos() }) { Text("Carregar mais") } } } }
                     }
                 }
                 if (carregandoDetalhes) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
