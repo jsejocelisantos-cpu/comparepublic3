@@ -1,55 +1,19 @@
 package com.example.compare.screens
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,258 +22,309 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.PopupProperties
-import androidx.core.content.ContextCompat
 import com.example.compare.R
+import com.example.compare.model.DadosMercado
 import com.example.compare.model.ProdutoPreco
-import com.example.compare.utils.bitmapParaString
+import com.example.compare.utils.comprimirImagem
+import com.example.compare.utils.dadosBrasil
 import com.example.compare.utils.stringParaBitmap
 import com.example.compare.utils.temOfensa
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.util.Date
-import java.util.Locale
-
-// --- FUNÇÃO AUXILIAR PARA CAPITALIZAR ---
-// Transforma "arroz branco" em "Arroz Branco"
-fun String.capitalizarPalavras(): String {
-    return this.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
-        palavra.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
-    }
-}
-
-@Composable
-fun TelaEdicaoInterna(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (ProdutoPreco) -> Unit) {
-    var nomeEd by remember { mutableStateOf(oferta.nomeProduto) }
-    var precoEd by remember { mutableStateOf(oferta.valor.toString()) }
-    var codEd by remember { mutableStateOf(oferta.codigoBarras) }
-    var fotoBitmap by remember { mutableStateOf<Bitmap?>(stringParaBitmap(oferta.fotoBase64)) }
-
-    val context = LocalContext.current
-    val launcherGaleria = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            val stream = context.contentResolver.openInputStream(uri)
-            fotoBitmap = BitmapFactory.decodeStream(stream)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text("Editar Oferta") },
-        text = {
-            Column {
-                Box(
-                    modifier = Modifier.fillMaxWidth().height(100.dp).background(Color.LightGray).clickable { launcherGaleria.launch("image/*") },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (fotoBitmap != null) {
-                        Image(bitmap = fotoBitmap!!.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                    } else {
-                        Text("Toque p/ Foto", fontSize = 12.sp)
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                OutlinedTextField(value = nomeEd, onValueChange = { nomeEd = it }, label = { Text("Nome") })
-                OutlinedTextField(value = precoEd, onValueChange = { precoEd = it }, label = { Text("Preço") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                OutlinedTextField(value = codEd, onValueChange = { codEd = it }, label = { Text("Código Barras") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                val novoPreco = precoEd.replace(",", ".").toDoubleOrNull() ?: 0.0
-                val novaFoto = if (fotoBitmap != null) bitmapParaString(fotoBitmap!!) else ""
-
-                if (nomeEd.isNotEmpty() && !temOfensa(nomeEd)) {
-                    // MUDANÇA: Capitaliza o nome ao editar também
-                    val nomeBonito = nomeEd.capitalizarPalavras()
-
-                    val nova = oferta.copy(
-                        nomeProduto = nomeBonito,
-                        nomePesquisa = nomeBonito.lowercase(), // Salva minusculo para busca
-                        valor = novoPreco,
-                        codigoBarras = codEd,
-                        fotoBase64 = novaFoto
-                    )
-                    onSave(nova)
-                }
-            }) { Text("Salvar") }
-        },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancelar") } }
-    )
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TelaCadastro(
     usuarioNome: String,
-    produtoPreenchido: ProdutoPreco? = null,
+    produtoPreenchido: ProdutoPreco?,
     estadoPre: String,
     cidadePre: String,
     onVoltar: () -> Unit,
     onSalvar: () -> Unit
 ) {
-    val context = LocalContext.current
     val db = FirebaseFirestore.getInstance()
+    val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
-    var codigoBarras by remember { mutableStateOf("") }
-    var nome by remember { mutableStateOf("") }
-    var preco by remember { mutableStateOf(TextFieldValue("0,00", TextRange(4))) }
-    var comentario by remember { mutableStateOf("") }
-    var metodo by remember { mutableStateOf("MANUAL") }
-    var fotoBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var mostrarOpcoesFoto by remember { mutableStateOf(false) }
+    // Campos do formulário
+    var codigoBarras by remember { mutableStateOf(produtoPreenchido?.codigoBarras ?: "") }
+    var nomeProduto by remember { mutableStateOf(produtoPreenchido?.nomeProduto ?: "") }
+    var valor by remember { mutableStateOf(if (produtoPreenchido != null) produtoPreenchido.valor.toString() else "") }
+    var mercado by remember { mutableStateOf(produtoPreenchido?.mercado ?: "") }
+    var comentario by remember { mutableStateOf(produtoPreenchido?.comentario ?: "") }
 
-    var mercado by remember { mutableStateOf("") }
-    val listaMercados = remember { mutableStateListOf("Cooper", "Komprão", "Fort Atacadista", "Angeloni", "Giassi", "Rancho Bom", "Outro") }
-    var mercadoExpandido by remember { mutableStateOf(false) }
-    val mercadosFiltrados = remember(mercado, listaMercados) {
-        if (mercado.isBlank()) listaMercados else listaMercados.filter { it.contains(mercado, ignoreCase = true) }
-    }
+    // Foto
+    var fotoBase64 by remember { mutableStateOf(produtoPreenchido?.fotoBase64 ?: "") }
+    var mostrarCamera by remember { mutableStateOf(false) }
 
-    val scanner = GmsBarcodeScanning.getClient(context)
-    val scrollState = rememberScrollState()
+    // Localização
+    var estadoSelecionado by remember { mutableStateOf(if (produtoPreenchido?.estado?.isNotEmpty() == true) produtoPreenchido.estado else estadoPre) }
+    var cidadeSelecionada by remember { mutableStateOf(if (produtoPreenchido?.cidade?.isNotEmpty() == true) produtoPreenchido.cidade else cidadePre) }
+    var buscaCidade by remember { mutableStateOf("") }
+    var expandirCidades by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        db.collection("mercados").get().addOnSuccessListener { result ->
-            for (document in result) {
-                val nomeMercado = document.getString("nome")
-                if (nomeMercado != null && !listaMercados.contains(nomeMercado)) {
-                    listaMercados.add(nomeMercado)
+    // Mercados
+    var listaMercados by remember { mutableStateOf(listOf<String>()) }
+    var sugestoesMercado by remember { mutableStateOf(listOf<String>()) }
+    var expandirMercado by remember { mutableStateOf(false) }
+
+    // Controle de Loading e Feedback
+    var salvando by remember { mutableStateOf(false) }
+    var buscandoProduto by remember { mutableStateOf(false) }
+
+    // --- BUSCA AUTOMÁTICA DE PRODUTOS (CATÁLOGO + OFERTAS) ---
+    LaunchedEffect(codigoBarras) {
+        if (codigoBarras.length >= 8 && nomeProduto.isEmpty() && !buscandoProduto) {
+            buscandoProduto = true
+
+            // 1º Tenta buscar na coleção 'produtos_base' (Sua Importação CSV)
+            db.collection("produtos_base").document(codigoBarras).get()
+                .addOnSuccessListener { doc ->
+                    if (doc.exists()) {
+                        nomeProduto = doc.getString("nomeProduto") ?: ""
+                        Toast.makeText(context, "Produto encontrado no catálogo!", Toast.LENGTH_SHORT).show()
+                        buscandoProduto = false
+                    } else {
+                        // 2º Se não achar no catálogo, tenta nas ofertas antigas (Histórico de usuários)
+                        db.collection("ofertas")
+                            .whereEqualTo("codigoBarras", codigoBarras)
+                            .limit(1)
+                            .get()
+                            .addOnSuccessListener { result ->
+                                if (!result.isEmpty) {
+                                    val p = result.documents[0].toObject(ProdutoPreco::class.java)
+                                    if (p != null) {
+                                        nomeProduto = p.nomeProduto
+                                        if (fotoBase64.isEmpty()) fotoBase64 = p.fotoBase64
+                                        Toast.makeText(context, "Produto já cadastrado antes!", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                                buscandoProduto = false
+                            }
+                            .addOnFailureListener { buscandoProduto = false }
+                    }
                 }
-            }
-            val ordenada = listaMercados.sorted()
-            listaMercados.clear()
-            listaMercados.addAll(ordenada)
+                .addOnFailureListener { buscandoProduto = false }
         }
     }
 
-    var temPermissaoCamera by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
-    val launcherPermissao = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { concedida -> temPermissaoCamera = concedida }
-    val launcherCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap -> if (bitmap != null) fotoBitmap = bitmap }
-    val launcherGaleria = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            try { val stream = context.contentResolver.openInputStream(uri); fotoBitmap = BitmapFactory.decodeStream(stream) } catch (e: Exception) {}
+    // Carregar sugestões de mercados na cidade
+    LaunchedEffect(cidadeSelecionada) {
+        if (cidadeSelecionada.isNotEmpty()) {
+            db.collection("mercados").whereEqualTo("cidade", cidadeSelecionada).get()
+                .addOnSuccessListener { res -> listaMercados = res.documents.mapNotNull { it.getString("nome") } }
         }
     }
 
-    LaunchedEffect(produtoPreenchido) {
-        if (produtoPreenchido != null) {
-            nome = produtoPreenchido.nomeProduto
-            codigoBarras = produtoPreenchido.codigoBarras
-            val precoFormatado = String.format(Locale("pt", "BR"), "%.2f", produtoPreenchido.valor)
-            preco = TextFieldValue(precoFormatado, TextRange(precoFormatado.length))
-            if (produtoPreenchido.fotoBase64.isNotEmpty()) fotoBitmap = stringParaBitmap(produtoPreenchido.fotoBase64)
-            mercado = produtoPreenchido.mercado
-        }
+    // Filtro de Mercados
+    LaunchedEffect(mercado) {
+        sugestoesMercado = if (mercado.isBlank()) emptyList() else listaMercados.filter { it.contains(mercado, ignoreCase = true) }
+        expandirMercado = sugestoesMercado.isNotEmpty()
     }
 
-    fun buscarProdutoPorCodigo(codigo: String) {
-        if (codigo.isEmpty()) return
-        Toast.makeText(context, "Buscando...", Toast.LENGTH_SHORT).show()
-        db.collection("produtos_unicos").document(codigo).get()
-            .addOnSuccessListener { document ->
-                if (document.exists()) {
-                    nome = document.getString("nome") ?: ""
-                    Toast.makeText(context, "Produto encontrado: $nome", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Código novo.", Toast.LENGTH_SHORT).show()
-                }
-            }
-    }
-
-    if (mostrarOpcoesFoto) {
-        AlertDialog(
-            onDismissRequest = { mostrarOpcoesFoto = false },
-            title = { Text("Adicionar Imagem") },
-            text = { Text("Escolha a origem da imagem:") },
-            confirmButton = { Button(onClick = { mostrarOpcoesFoto = false; if (temPermissaoCamera) launcherCamera.launch(null) else launcherPermissao.launch(Manifest.permission.CAMERA) }) { Icon(Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text("Câmera") } },
-            dismissButton = { Button(onClick = { mostrarOpcoesFoto = false; launcherGaleria.launch("image/*") }) { Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Galeria") } }
+    if (mostrarCamera) {
+        CameraPreview(
+            onFotoTirada = { bitmap ->
+                fotoBase64 = comprimirImagem(bitmap)
+                mostrarCamera = false
+            },
+            onFechar = { mostrarCamera = false }
         )
-    }
-
-    Column(modifier = Modifier.padding(16.dp).fillMaxSize().verticalScroll(scrollState).imePadding()) {
-        Text(if(produtoPreenchido != null) "Novo Preço" else "Cadastrar", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (produtoPreenchido == null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Image(painter = painterResource(id = R.drawable.scancode), contentDescription = "Scan", modifier = Modifier.weight(1f).height(60.dp).clickable { if (temPermissaoCamera) { scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null && !rawValue.contains("/")) { codigoBarras = rawValue; metodo = "SCANNER"; buscarProdutoPorCodigo(rawValue) } else { Toast.makeText(context, "Escaneie apenas códigos de barras!", Toast.LENGTH_LONG).show() } } } else { launcherPermissao.launch(Manifest.permission.CAMERA) } }, contentScale = ContentScale.Fit)
-                Button(onClick = { mostrarOpcoesFoto = true }, modifier = Modifier.weight(1f).height(50.dp), contentPadding = PaddingValues(4.dp)) { Icon(Icons.Default.CameraAlt, null); Text("Foto/Galeria", fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp)) }
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(if (produtoPreenchido == null) "Nova Oferta" else "Editar Oferta") },
+                    navigationIcon = { IconButton(onClick = onVoltar) { Icon(Icons.Default.ArrowBack, "Voltar") } }
+                )
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            if (fotoBitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { Image(bitmap = fotoBitmap!!.asImageBitmap(), contentDescription = "Preview") }; Spacer(modifier = Modifier.height(10.dp)) }
-            OutlinedTextField(value = codigoBarras, onValueChange = { codigoBarras = it }, label = { Text("Ou digite o Código") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { buscarProdutoPorCodigo(codigoBarras); focusManager.clearFocus() }), trailingIcon = { IconButton(onClick = { buscarProdutoPorCodigo(codigoBarras); focusManager.clearFocus() }) { Icon(Icons.Default.Search, contentDescription = "Buscar") } })
-            Spacer(modifier = Modifier.height(16.dp))
-        } else { if(codigoBarras.isNotEmpty()) { OutlinedTextField(value = codigoBarras, onValueChange = {}, label = { Text("Código de Barras") }, enabled = false, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(16.dp)) } }
+        ) { padding ->
+            LazyColumn(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
 
-        OutlinedTextField(value = nome, onValueChange = { nome = it }, label = { Text("Nome do Produto") }, modifier = Modifier.fillMaxWidth(), enabled = (produtoPreenchido == null), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
+                // --- SEÇÃO CÓDIGO DE BARRAS ---
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = codigoBarras,
+                            onValueChange = { if (it.length <= 13 && it.all { c -> c.isDigit() }) codigoBarras = it },
+                            label = { Text("Código de Barras (Opcional)") },
+                            modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    scanner.startScan()
+                                        .addOnSuccessListener { barcode -> barcode.rawValue?.let { codigoBarras = it } }
+                                        .addOnFailureListener { Toast.makeText(context, "Erro Câmera", Toast.LENGTH_SHORT).show() }
+                                }) {
+                                    Image(painter = painterResource(id = R.drawable.scancode), contentDescription = "Scan", modifier = Modifier.size(30.dp))
+                                }
+                            }
+                        )
+                    }
+                    if (buscandoProduto) Text("Buscando produto...", fontSize = 12.sp, color = Color.Blue)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
-        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-            OutlinedTextField(value = mercado, onValueChange = { mercado = it; mercadoExpandido = true }, label = { Text("Mercado") }, trailingIcon = { Icon(Icons.Default.ArrowDropDown, null, Modifier.clickable { mercadoExpandido = !mercadoExpandido }) }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
-            if (mercadoExpandido && mercadosFiltrados.isNotEmpty()) { DropdownMenu(expanded = mercadoExpandido, onDismissRequest = { mercadoExpandido = false }, modifier = Modifier.fillMaxWidth(0.9f), properties = PopupProperties(focusable = false)) { mercadosFiltrados.forEach { m -> DropdownMenuItem(text = { Text(m) }, onClick = { mercado = m; mercadoExpandido = false }) } } }
-        }
-
-        OutlinedTextField(value = preco, onValueChange = { novoValor -> val digits = novoValor.text.filter { it.isDigit() }; if (digits.length <= 10) { val valorRaw = if (digits.isEmpty()) 0L else digits.toLong(); val valorDouble = valorRaw / 100.0; val formatado = String.format(Locale("pt", "BR"), "%.2f", valorDouble); preco = TextFieldValue(formatado, TextRange(formatado.length)) } }, label = { Text("Preço (R$)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next), modifier = Modifier.fillMaxWidth(), singleLine = true)
-        OutlinedTextField(value = comentario, onValueChange = { comentario = it }, label = { Text("Comentário (Opcional)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }))
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Button(
-            onClick = {
-                if (temOfensa(nome) || temOfensa(comentario)) { Toast.makeText(context, "Conteúdo impróprio detectado!", Toast.LENGTH_LONG).show(); return@Button }
-                val precoFinal = preco.text.replace(".", "").replace(",", ".").toDoubleOrNull()
-                if (nome.isNotEmpty() && precoFinal != null && mercado.isNotEmpty() && precoFinal > 0) {
-                    if (!listaMercados.contains(mercado)) db.collection("mercados").add(hashMapOf("nome" to mercado))
-                    val fotoString = if (fotoBitmap != null) bitmapParaString(fotoBitmap!!) else ""
-                    val listaComents = if (comentario.isNotEmpty()) listOf("$usuarioNome: $comentario") else emptyList()
-
-                    // MUDANÇA: Aplica a capitalização aqui
-                    val nomeBonito = nome.capitalizarPalavras()
-
-                    val ofertaNova = ProdutoPreco(
-                        codigoBarras = codigoBarras,
-                        nomeProduto = nomeBonito, // Salva bonito
-                        nomePesquisa = nomeBonito.lowercase(), // Salva minúsculo para busca
-                        valor = precoFinal,
-                        mercado = mercado,
-                        cidade = cidadePre,
-                        estado = estadoPre,
-                        metodoEntrada = if(codigoBarras.isNotEmpty() && metodo == "MANUAL") "DIGITADO" else metodo,
-                        comentario = comentario,
-                        chatComentarios = listaComents,
-                        usuarioId = usuarioNome,
-                        fotoBase64 = fotoString,
-                        data = Date()
+                // --- SEÇÃO NOME DO PRODUTO ---
+                item {
+                    OutlinedTextField(
+                        value = nomeProduto,
+                        onValueChange = { nomeProduto = it },
+                        label = { Text("Nome do Produto") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
-                    val query = if (codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", codigoBarras).whereEqualTo("mercado", mercado) else db.collection("ofertas").whereEqualTo("nomeProduto", nome).whereEqualTo("mercado", mercado)
-                    query.get().addOnSuccessListener { snapshot ->
-                        if (!snapshot.isEmpty) {
-                            val idExistente = snapshot.documents[0].id
-                            val dadosAntigos = snapshot.documents[0].toObject(ProdutoPreco::class.java)
-                            val fotoFinal = if(fotoString.isNotEmpty()) fotoString else dadosAntigos?.fotoBase64 ?: ""
-                            val comentsFinais = (dadosAntigos?.chatComentarios ?: emptyList()) + listaComents
-                            val ofertaAtualizada = ofertaNova.copy(fotoBase64 = fotoFinal, chatComentarios = comentsFinais)
-                            db.collection("ofertas").document(idExistente).set(ofertaAtualizada)
-                            Toast.makeText(context, "Preço ATUALIZADO!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            db.collection("ofertas").add(ofertaNova)
-                            Toast.makeText(context, "Preço CADASTRADO!", Toast.LENGTH_SHORT).show()
+                // --- SEÇÃO PREÇO ---
+                item {
+                    OutlinedTextField(
+                        value = valor,
+                        onValueChange = { newText ->
+                            if (newText.count { it == '.' } <= 1 && newText.all { it.isDigit() || it == '.' }) valor = newText
+                        },
+                        label = { Text("Preço (R$)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // --- SEÇÃO MERCADO ---
+                item {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = mercado,
+                            onValueChange = { mercado = it },
+                            label = { Text("Nome do Mercado") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
+                        )
+                        DropdownMenu(
+                            expanded = expandirMercado,
+                            onDismissRequest = { expandirMercado = false },
+                            properties = androidx.compose.ui.window.PopupProperties(focusable = false)
+                        ) {
+                            sugestoesMercado.forEach { m ->
+                                DropdownMenuItem(text = { Text(m) }, onClick = { mercado = m; expandirMercado = false })
+                            }
                         }
                     }
-                    if (codigoBarras.isNotEmpty()) { val dadosProduto = hashMapOf("nome" to nomeBonito); db.collection("produtos_unicos").document(codigoBarras).set(dadosProduto) }
-                    onSalvar()
-                } else { Toast.makeText(context, "Preencha os dados obrigatórios!", Toast.LENGTH_SHORT).show() }
-            },
-            modifier = Modifier.fillMaxWidth().height(50.dp)
-        ) { Text("PUBLICAR PREÇO") }
-        TextButton(onClick = onVoltar, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // --- SEÇÃO LOCALIZAÇÃO ---
+                item {
+                    Text("Localização da Oferta", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                    LazyRow(modifier = Modifier.padding(vertical = 8.dp)) {
+                        items(dadosBrasil.keys.sorted()) { uf ->
+                            FilterChip(selected = estadoSelecionado == uf, onClick = { estadoSelecionado = uf; cidadeSelecionada = ""; buscaCidade = "" }, label = { Text(uf) }, modifier = Modifier.padding(end = 4.dp))
+                        }
+                    }
+                    if (estadoSelecionado.isNotEmpty()) {
+                        Box {
+                            OutlinedTextField(
+                                value = if(expandirCidades) buscaCidade else cidadeSelecionada,
+                                onValueChange = { buscaCidade = it; expandirCidades = true },
+                                label = { Text("Cidade") },
+                                modifier = Modifier.fillMaxWidth(),
+                                trailingIcon = { IconButton(onClick = { expandirCidades = !expandirCidades }) { Icon(Icons.Default.ArrowBack, null, modifier = Modifier.rotate(270f)) } } // Seta pra baixo improvisada
+                            )
+                            DropdownMenu(
+                                expanded = expandirCidades,
+                                onDismissRequest = { expandirCidades = false },
+                                modifier = Modifier.heightIn(max = 200.dp)
+                            ) {
+                                val filtradas = dadosBrasil[estadoSelecionado]?.filter { it.contains(buscaCidade, true) } ?: emptyList()
+                                filtradas.forEach { cid ->
+                                    DropdownMenuItem(text = { Text(cid) }, onClick = { cidadeSelecionada = cid; expandirCidades = false; buscaCidade = "" })
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // --- SEÇÃO FOTO E COMENTÁRIO ---
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { mostrarCamera = true }) {
+                            Icon(Icons.Default.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (fotoBase64.isEmpty()) "Adicionar Foto" else "Trocar Foto")
+                        }
+                        if (fotoBase64.isNotEmpty()) {
+                            Spacer(Modifier.width(10.dp))
+                            val bitmap = stringParaBitmap(fotoBase64)
+                            if (bitmap != null) {
+                                Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.size(50.dp), contentScale = ContentScale.Crop)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = comentario, onValueChange = { comentario = it }, label = { Text("Observação (opcional)") }, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // --- BOTÃO SALVAR ---
+                item {
+                    Button(
+                        onClick = {
+                            if (nomeProduto.isBlank() || valor.isBlank() || mercado.isBlank() || cidadeSelecionada.isBlank()) {
+                                Toast.makeText(context, "Preencha nome, preço, mercado e cidade!", Toast.LENGTH_SHORT).show()
+                            } else if (temOfensa(nomeProduto) || temOfensa(comentario) || temOfensa(mercado)) {
+                                Toast.makeText(context, "Conteúdo impróprio detectado.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                salvando = true
+                                val precoDouble = valor.toDoubleOrNull() ?: 0.0
+                                val novaOferta = ProdutoPreco(
+                                    id = produtoPreenchido?.id ?: "", // Mantém ID se editando
+                                    usuarioId = usuarioNome,
+                                    nomeProduto = nomeProduto,
+                                    nomePesquisa = nomeProduto.lowercase(),
+                                    mercado = mercado,
+                                    valor = precoDouble,
+                                    data = Date(),
+                                    codigoBarras = codigoBarras,
+                                    fotoBase64 = fotoBase64,
+                                    comentario = comentario,
+                                    estado = estadoSelecionado,
+                                    cidade = cidadeSelecionada
+                                )
+
+                                if (produtoPreenchido == null) {
+                                    db.collection("ofertas").add(novaOferta)
+                                        .addOnSuccessListener {
+                                            // Salva mercado para autocomplete futuro
+                                            db.collection("mercados").document(mercado).set(DadosMercado(mercado, mercado, "", "", "", cidadeSelecionada))
+                                            Toast.makeText(context, "Oferta publicada!", Toast.LENGTH_SHORT).show()
+                                            onSalvar()
+                                        }
+                                } else {
+                                    db.collection("ofertas").document(novaOferta.id).set(novaOferta)
+                                        .addOnSuccessListener {
+                                            Toast.makeText(context, "Oferta atualizada!", Toast.LENGTH_SHORT).show()
+                                            onSalvar()
+                                        }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        enabled = !salvando
+                    ) {
+                        if (salvando) CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp)) else Text("SALVAR OFERTA")
+                    }
+                }
+            }
+        }
     }
 }
+// Extensãozinha auxiliar para rotacionar icone
+fun Modifier.rotate(degrees: Float) = this.then(Modifier.graphicsLayer(rotationZ = degrees))
