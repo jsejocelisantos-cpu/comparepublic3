@@ -112,28 +112,38 @@ fun DialogoRankingDetalhes(
     onNovoComentario: (String, String) -> Unit,
     onApagarComentario: (String, String) -> Unit,
     onEditarComentario: (String, String, String) -> Unit,
-    onAtualizarNomeProduto: (String) -> Unit // --- NOVO CALLBACK PARA RENOMEAR PRODUTO ---
+    onAtualizarNomeProduto: (String) -> Unit,
+    onAtualizarNomeMercado: (String, String) -> Unit, // Novo: (nomeAntigo, nomeNovo)
+    onApagarMercado: (String) -> Unit, // Novo
+    onApagarProdutoGlobal: (ProdutoPreco) -> Unit // Novo
 ) {
     val listaOrdenada = grupoOfertas.sortedBy { it.valor }
     val produtoBase = listaOrdenada.first()
     val todosComentarios = grupoOfertas.flatMap { oferta -> oferta.chatComentarios.map { comentario -> Pair(oferta.id, comentario) } }
 
+    // Estados dos Diálogos Internos
     var ofertaEmEdicao by remember { mutableStateOf<ProdutoPreco?>(null) }
     var comentarioEmEdicao by remember { mutableStateOf<Pair<String, String>?>(null) }
     var mercadoSelecionado by remember { mutableStateOf<String?>(null) }
-    var textoChat by remember { mutableStateOf("") }
-    val focusManager = LocalFocusManager.current
 
-    // --- NOVOS ESTADOS PARA EDIÇÃO DE NOME E MERCADO (ADMIN) ---
-    var ofertaParaEditarMercado by remember { mutableStateOf<ProdutoPreco?>(null) }
+    // Estados Admin
     var editandoNomeProduto by remember { mutableStateOf(false) }
     var novoNomeProduto by remember { mutableStateOf(produtoBase.nomeProduto) }
 
-    // --- DIÁLOGOS AUXILIARES ---
+    // Estado para Editar Mercado: guarda o NOME do mercado sendo editado
+    var mercadoParaEditar by remember { mutableStateOf<String?>(null) }
 
+    var textoChat by remember { mutableStateOf("") }
+    val focusManager = LocalFocusManager.current
+
+    // --- DIÁLOGOS DE CONFIRMAÇÃO ---
+    var mostrarConfirmacaoApagarProduto by remember { mutableStateOf(false) }
+
+    // 1. Detalhes do Mercado (Visualização)
     if (mercadoSelecionado != null) {
         DialogoDadosMercado(nomeMercado = mercadoSelecionado!!, isAdmin = isAdmin, onDismiss = { mercadoSelecionado = null })
     }
+    // 2. Editar Preço da Oferta
     else if (ofertaEmEdicao != null) {
         DialogoEditarOferta(
             oferta = ofertaEmEdicao!!,
@@ -141,13 +151,13 @@ fun DialogoRankingDetalhes(
             onSave = { novaOferta: ProdutoPreco -> onUpdate(novaOferta); ofertaEmEdicao = null }
         )
     }
+    // 3. Editar Comentário
     else if (comentarioEmEdicao != null) {
         var textoEditado by remember { mutableStateOf(comentarioEmEdicao!!.second.split(": ", limit = 2).getOrElse(1) { "" }) }
         AlertDialog(onDismissRequest = { comentarioEmEdicao = null }, title = { Text("Editar Comentário") }, text = { OutlinedTextField(value = textoEditado, onValueChange = { textoEditado = it }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (textoEditado.isNotBlank()) { onEditarComentario(comentarioEmEdicao!!.first, comentarioEmEdicao!!.second, textoEditado); comentarioEmEdicao = null } }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = { comentarioEmEdicao = null }) { Text("Cancelar") } })
     }
-
-    // --- DIÁLOGO PARA EDITAR NOME DO PRODUTO (ADMIN) ---
-    if (editandoNomeProduto) {
+    // 4. Renomear Produto (Global)
+    else if (editandoNomeProduto) {
         AlertDialog(
             onDismissRequest = { editandoNomeProduto = false },
             title = { Text("Renomear Produto") },
@@ -158,56 +168,94 @@ fun DialogoRankingDetalhes(
                     OutlinedTextField(value = novoNomeProduto, onValueChange = { novoNomeProduto = it }, label = { Text("Novo Nome") }, modifier = Modifier.fillMaxWidth())
                 }
             },
-            confirmButton = {
-                Button(onClick = {
-                    if (novoNomeProduto.isNotBlank()) {
-                        onAtualizarNomeProduto(novoNomeProduto)
-                        editandoNomeProduto = false
-                    }
-                }) { Text("Salvar") }
-            },
+            confirmButton = { Button(onClick = { if (novoNomeProduto.isNotBlank()) { onAtualizarNomeProduto(novoNomeProduto); editandoNomeProduto = false } }) { Text("Salvar") } },
             dismissButton = { TextButton(onClick = { editandoNomeProduto = false }) { Text("Cancelar") } }
         )
     }
+    // 5. Renomear/Apagar Mercado (Global)
+    else if (mercadoParaEditar != null) {
+        var novoNomeMercado by remember { mutableStateOf(mercadoParaEditar!!) }
+        var confirmandoApagarMercado by remember { mutableStateOf(false) }
 
-    // --- DIÁLOGO PARA EDITAR NOME DO MERCADO (ADMIN) ---
-    if (ofertaParaEditarMercado != null) {
-        var novoNomeMercado by remember { mutableStateOf(ofertaParaEditarMercado!!.mercado) }
-        AlertDialog(
-            onDismissRequest = { ofertaParaEditarMercado = null },
-            title = { Text("Renomear Mercado") },
-            text = { OutlinedTextField(value = novoNomeMercado, onValueChange = { novoNomeMercado = it }, label = { Text("Novo Nome do Mercado") }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = {
-                Button(onClick = {
-                    if (novoNomeMercado.isNotBlank()) {
-                        onUpdate(ofertaParaEditarMercado!!.copy(mercado = novoNomeMercado)) // Salva o novo nome
-                        ofertaParaEditarMercado = null
+        if(confirmandoApagarMercado){
+            AlertDialog(
+                onDismissRequest = { confirmandoApagarMercado = false },
+                title = { Text("Excluir Mercado?", color = Color.Red) },
+                text = { Text("Isso apagará o cadastro do mercado '$mercadoParaEditar'. As ofertas permanecerão, mas sem vínculo com o endereço.") },
+                confirmButton = {
+                    Button(
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                        onClick = {
+                            onApagarMercado(mercadoParaEditar!!)
+                            mercadoParaEditar = null
+                            confirmandoApagarMercado = false
+                        }
+                    ) { Text("Excluir Definitivamente") }
+                },
+                dismissButton = { TextButton(onClick = { confirmandoApagarMercado = false }) { Text("Voltar") } }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { mercadoParaEditar = null },
+                title = { Text("Gerenciar Mercado") },
+                text = {
+                    Column {
+                        Text("Edite o nome ou exclua o mercado do sistema.", fontSize = 12.sp)
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = novoNomeMercado, onValueChange = { novoNomeMercado = it }, label = { Text("Nome do Mercado") }, modifier = Modifier.fillMaxWidth())
                     }
-                }) { Text("Salvar") }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        if (novoNomeMercado.isNotBlank() && novoNomeMercado != mercadoParaEditar) {
+                            onAtualizarNomeMercado(mercadoParaEditar!!, novoNomeMercado)
+                            mercadoParaEditar = null
+                        } else {
+                            mercadoParaEditar = null // Só fecha se não mudou
+                        }
+                    }) { Text("Salvar Alteração") }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { confirmandoApagarMercado = true }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Excluir Mercado") }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = { mercadoParaEditar = null }) { Text("Cancelar") }
+                    }
+                }
+            )
+        }
+    }
+    // 6. Confirmar Apagar Produto Global
+    else if (mostrarConfirmacaoApagarProduto) {
+        AlertDialog(
+            onDismissRequest = { mostrarConfirmacaoApagarProduto = false },
+            title = { Text("Excluir Produto?", color = Color.Red) },
+            text = { Text("ATENÇÃO: Isso excluirá o produto do catálogo e TODAS as ofertas associadas a ele. Esta ação não pode ser desfeita.") },
+            confirmButton = {
+                Button(
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                    onClick = {
+                        onApagarProdutoGlobal(produtoBase)
+                        mostrarConfirmacaoApagarProduto = false
+                    }
+                ) { Text("Sim, Excluir Tudo") }
             },
-            dismissButton = { TextButton(onClick = { ofertaParaEditarMercado = null }) { Text("Cancelar") } }
+            dismissButton = { TextButton(onClick = { mostrarConfirmacaoApagarProduto = false }) { Text("Cancelar") } }
         )
     }
-
-    // --- DIÁLOGO PRINCIPAL (LISTA DE OFERTAS) ---
-    // (Só mostra se nenhum dos sub-diálogos acima estiver ativo, exceto os de edição simples que controlam seu próprio estado)
-    if (mercadoSelecionado == null && ofertaEmEdicao == null && comentarioEmEdicao == null && !editandoNomeProduto && ofertaParaEditarMercado == null) {
+    // 7. Tela Principal (Lista de Ofertas)
+    else {
         AlertDialog(
             onDismissRequest = onDismiss,
             title = {
-                // --- TÍTULO EDITÁVEL (ADMIN) ---
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        produtoBase.nomeProduto,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f) // Ocupa o espaço disponível
-                    )
+                    Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     if (isAdmin) {
-                        IconButton(onClick = {
-                            novoNomeProduto = produtoBase.nomeProduto
-                            editandoNomeProduto = true
-                        }) {
-                            Icon(Icons.Default.Edit, "Editar Nome Produto", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        IconButton(onClick = { novoNomeProduto = produtoBase.nomeProduto; editandoNomeProduto = true }) {
+                            Icon(Icons.Default.Edit, "Editar Nome", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { mostrarConfirmacaoApagarProduto = true }) {
+                            Icon(Icons.Default.DeleteForever, "Apagar Produto", tint = Color.Red, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -216,11 +264,11 @@ fun DialogoRankingDetalhes(
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
                     if (ofertaComFoto != null) { item { val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64); if (bitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) { Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } } } }
-                    items(listaOrdenada) { oferta ->
+
+                    items(listaOrdenada, key = { it.id }) { oferta -> // USAR KEY É IMPORTANTE PARA O ESTADO
                         Column {
                             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    // --- NOME DO MERCADO EDITÁVEL (ADMIN) ---
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = oferta.mercado,
@@ -232,14 +280,13 @@ fun DialogoRankingDetalhes(
                                         if (isAdmin) {
                                             Spacer(Modifier.width(8.dp))
                                             IconButton(
-                                                onClick = { ofertaParaEditarMercado = oferta },
-                                                modifier = Modifier.size(18.dp) // Personalize: Tamanho do ícone lápis mercado
+                                                onClick = { mercadoParaEditar = oferta.mercado },
+                                                modifier = Modifier.size(18.dp)
                                             ) {
                                                 Icon(Icons.Default.Edit, "Editar Mercado", tint = Color.Gray)
                                             }
                                         }
                                     }
-
                                     Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                     if (oferta.comentario.isNotEmpty()) Text("Obs: ${oferta.comentario}", style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
                                 }
@@ -262,19 +309,14 @@ fun DialogoRankingDetalhes(
             confirmButton = {
                 Button(onClick = {
                     onDismiss()
-                    onIrCadastro(produtoBase.copy(
-                        id = "",
-                        mercado = "",
-                        valor = 0.0,
-                        usuarioId = ""
-                    ))
+                    onIrCadastro(produtoBase.copy(id = "", mercado = "", valor = 0.0, usuarioId = ""))
                 }) { Text("Adicionar Outro Mercado") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
-
     }
 }
 
+// ... Resto do arquivo (DialogoDadosMercado, DialogoLocalizacao, etc.) mantém-se igual ...
 @Composable
 fun DialogoDadosMercado(nomeMercado: String, isAdmin: Boolean, onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()

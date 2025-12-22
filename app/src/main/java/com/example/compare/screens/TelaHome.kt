@@ -37,9 +37,9 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.compare.R
+import com.example.compare.model.DadosMercado
 import com.example.compare.model.ItemLista
 import com.example.compare.model.ProdutoPreco
-import com.example.compare.model.Usuario
 import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -48,6 +48,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -211,6 +212,7 @@ fun TelaHome(
         val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
+            // Busca por Array de Palavras (Smart Search)
             val termos = termoBusca.split(" ").filter { it.isNotBlank() }.take(10)
             if (termos.isNotEmpty()) {
                 db.collection("ofertas")
@@ -227,7 +229,7 @@ fun TelaHome(
                 if (p.cidade.equals(cidadeAtual, ignoreCase = true) || p.cidade.isEmpty()) todosProdutos.add(p)
             }
 
-            // 2. Busca Catálogo (Se não achou nas ofertas ou para complementar)
+            // 2. Busca Catálogo
             if (isBarcode) {
                 db.collection("produtos_base").document(termoBusca).get().addOnSuccessListener { docBase ->
                     if (docBase.exists()) {
@@ -277,9 +279,30 @@ fun TelaHome(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // --- FUNÇÃO PARA MANTER O DIÁLOGO ATUALIZADO (FIX LÁPIS SUMINDO) ---
+    fun atualizarDetalhesAbertos(produtoBase: ProdutoPreco) {
+        // Recarrega os dados do produto que está aberto no detalhe
+        val query = if (produtoBase.codigoBarras.isNotEmpty())
+            db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras)
+        else
+            db.collection("ofertas").whereEqualTo("nomeProduto", produtoBase.nomeProduto)
+
+        query.get().addOnSuccessListener { result ->
+            val listaCompleta = result.map { doc -> doc.toObject(ProdutoPreco::class.java).copy(id = doc.id) }
+            val listaFiltrada = listaCompleta.filter { it.cidade.equals(cidadeAtual, ignoreCase = true) || it.cidade.isEmpty() }
+
+            if (listaFiltrada.isNotEmpty()) {
+                // Atualiza o estado, o que força o Compose a redesenhar o diálogo com os novos dados
+                grupoSelecionadoParaDetalhes = listaFiltrada
+            } else {
+                // Se não sobrou nenhuma oferta (ex: tudo apagado), fecha o diálogo
+                grupoSelecionadoParaDetalhes = null
+            }
+        }
+    }
+
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
         if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") return
-
         carregandoDetalhes = true
         val query = if (produtoBase.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", produtoBase.nomeProduto)
         query.get().addOnSuccessListener { result ->
@@ -399,6 +422,7 @@ fun TelaHome(
                                             // --- BOTÕES DE AÇÃO ---
                                             Row {
                                                 IconButton(onClick = {
+                                                    // Abre cadastro com mercado vazio para obrigar seleção manual
                                                     onIrCadastro(melhorOferta.copy(
                                                         id = "",
                                                         mercado = "",
@@ -434,20 +458,59 @@ fun TelaHome(
 
     if (grupoSelecionadoParaDetalhes != null) {
         DialogoRankingDetalhes(
-            grupoOfertas = grupoSelecionadoParaDetalhes!!, usuarioLogado = usuarioLogado, isAdmin = isAdmin,
-            onDismiss = { grupoSelecionadoParaDetalhes = null }, onIrCadastro = onIrCadastro,
+            grupoOfertas = grupoSelecionadoParaDetalhes!!,
+            usuarioLogado = usuarioLogado,
+            isAdmin = isAdmin,
+            onDismiss = { grupoSelecionadoParaDetalhes = null },
+            onIrCadastro = onIrCadastro,
+            // --- CALLBACKS DE ATUALIZAÇÃO ---
             onDelete = { id ->
-                db.collection("ofertas").document(id).delete().addOnSuccessListener { carregarProdutos(resetar = true) }
-                grupoSelecionadoParaDetalhes = grupoSelecionadoParaDetalhes!!.filter { it.id != id }
-                if(grupoSelecionadoParaDetalhes!!.isEmpty()) grupoSelecionadoParaDetalhes = null
+                db.collection("ofertas").document(id).delete().addOnSuccessListener {
+                    // Atualiza a visualização sem fechar, a menos que seja o último item
+                    atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first())
+                }
             },
-            onUpdate = { nova -> db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener { carregarProdutos(resetar = true) }; grupoSelecionadoParaDetalhes = null },
-            onNovoComentario = { id, txt -> if(!temOfensa(txt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { carregarProdutos(resetar = true) } } },
-            onApagarComentario = { id, txt -> val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList().apply { remove(txt) }; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } },
-            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) { val autor = old.split(": ", limit=2)[0]; nova[idx] = "$autor: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } } } },
-            // --- LÓGICA DE ATUALIZAÇÃO DO NOME DO PRODUTO (GLOBAL) ---
+            onUpdate = { nova ->
+                db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener {
+                    atualizarDetalhesAbertos(nova)
+                }
+            },
+            onNovoComentario = { id, txt ->
+                if(!temOfensa(txt)) {
+                    val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                    if(target != null) {
+                        db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt")
+                            .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
+                    }
+                }
+            },
+            onApagarComentario = { id, txt ->
+                val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                if(target != null) {
+                    val nova = target.chatComentarios.toMutableList().apply { remove(txt) }
+                    db.collection("ofertas").document(id).update("chatComentarios", nova)
+                        .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
+                }
+            },
+            onEditarComentario = { id, old, newTxt ->
+                if(!temOfensa(newTxt)) {
+                    val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
+                    if(target != null) {
+                        val nova = target.chatComentarios.toMutableList()
+                        val idx = nova.indexOf(old)
+                        if(idx != -1) {
+                            val autor = old.split(": ", limit=2)[0]
+                            nova[idx] = "$autor: $newTxt"
+                            db.collection("ofertas").document(id).update("chatComentarios", nova)
+                                .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
+                        }
+                    }
+                }
+            },
+
+            // --- ADMIN: ATUALIZAR NOME DO PRODUTO (GLOBAL) ---
             onAtualizarNomeProduto = { novoNome ->
-                val nomeCap = capitalizarTexto(novoNome) // Usa função existente em TelaCadastro.kt
+                val nomeCap = capitalizarTextoHelper(novoNome)
                 val palavras = nomeCap.lowercase().split(" ").filter { it.isNotBlank() }
 
                 val pBase = grupoSelecionadoParaDetalhes!!.first()
@@ -467,7 +530,79 @@ fun TelaHome(
                     }
                     batch.commit().addOnSuccessListener {
                         Toast.makeText(context, "Produto renomeado com sucesso!", Toast.LENGTH_SHORT).show()
-                        grupoSelecionadoParaDetalhes = null // Fecha para atualizar
+                        grupoSelecionadoParaDetalhes = null // Fecha para forçar reload da lista principal
+                        carregarProdutos(resetar = true)
+                    }
+                }
+            },
+
+            // --- ADMIN: ATUALIZAR NOME DO MERCADO (GLOBAL) ---
+            onAtualizarNomeMercado = { nomeAntigo, nomeNovo ->
+                val novoCap = capitalizarTextoHelper(nomeNovo)
+
+                // 1. Busca todas as ofertas com o nome antigo
+                db.collection("ofertas").whereEqualTo("mercado", nomeAntigo).get().addOnSuccessListener { res ->
+                    val batch = db.batch()
+
+                    // Atualiza ofertas
+                    for (doc in res) {
+                        batch.update(doc.reference, "mercado", novoCap)
+                    }
+
+                    // 2. Atualiza a coleção de Mercados (Copia e deleta o antigo ID)
+                    db.collection("mercados").document(nomeAntigo).get().addOnSuccessListener { docM ->
+                        if(docM.exists()) {
+                            val dados = docM.toObject(DadosMercado::class.java)!!.copy(nome = novoCap, id = novoCap)
+                            batch.set(db.collection("mercados").document(novoCap), dados)
+                            batch.delete(db.collection("mercados").document(nomeAntigo))
+                        }
+
+                        // 3. Executa tudo
+                        batch.commit().addOnSuccessListener {
+                            Toast.makeText(context, "Mercado atualizado em ${res.size()} ofertas!", Toast.LENGTH_SHORT).show()
+
+                            // Lógica para saber se precisamos fechar ou só atualizar
+                            val base = grupoSelecionadoParaDetalhes!!.firstOrNull()
+                            if (base != null && base.mercado == nomeAntigo) {
+                                // Se a oferta principal (que usamos para abrir o detalhe) mudou de nome, melhor fechar e recarregar
+                                grupoSelecionadoParaDetalhes = null
+                                carregarProdutos(resetar = true)
+                            } else if (base != null) {
+                                // Se só mudou um item da lista interna, tenta recarregar
+                                atualizarDetalhesAbertos(base)
+                            }
+                        }
+                    }
+                }
+            },
+
+            // --- ADMIN: APAGAR MERCADO (COLEÇÃO) ---
+            onApagarMercado = { nomeMercado ->
+                db.collection("mercados").document(nomeMercado).delete().addOnSuccessListener {
+                    Toast.makeText(context, "Cadastro do Mercado Excluído!", Toast.LENGTH_SHORT).show()
+                }
+            },
+
+            // --- ADMIN: APAGAR PRODUTO GLOBAL ---
+            onApagarProdutoGlobal = { produto ->
+                val query = if(produto.codigoBarras.isNotEmpty())
+                    db.collection("ofertas").whereEqualTo("codigoBarras", produto.codigoBarras)
+                else
+                    db.collection("ofertas").whereEqualTo("nomeProduto", produto.nomeProduto)
+
+                query.get().addOnSuccessListener { res ->
+                    val batch = db.batch()
+                    // Deleta todas as ofertas
+                    for(d in res) batch.delete(d.reference)
+
+                    // Deleta do catálogo base se existir código de barras
+                    if(produto.codigoBarras.isNotEmpty()) {
+                        batch.delete(db.collection("produtos_base").document(produto.codigoBarras))
+                    }
+
+                    batch.commit().addOnSuccessListener {
+                        Toast.makeText(context, "Produto e ofertas excluídos!", Toast.LENGTH_SHORT).show()
+                        grupoSelecionadoParaDetalhes = null
                         carregarProdutos(resetar = true)
                     }
                 }
@@ -476,4 +611,11 @@ fun TelaHome(
     }
 
     if (mostrarDialogoFiltro) DialogoLocalizacao(onDismiss = { mostrarDialogoFiltro = false }, onConfirmar = { est, cid -> onMudarFiltro(est, cid); mostrarDialogoFiltro = false })
+}
+
+// Helper para capitalizar (caso não tenha acesso ao de TelaCadastro)
+fun capitalizarTextoHelper(texto: String): String {
+    return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
+        palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+    }
 }
