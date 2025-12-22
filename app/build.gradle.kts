@@ -44,6 +44,13 @@ android {
 
 dependencies {
 
+    // camera
+    val cameraxVersion = "1.4.1"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-view:$cameraxVersion")
+
 
         // FIREBASE (Banco de Dados)
         implementation(platform("com.google.firebase:firebase-bom:32.7.0"))

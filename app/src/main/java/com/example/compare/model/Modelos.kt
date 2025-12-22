@@ -26,8 +26,11 @@ data class DadosMercado(
     val nome: String = "",
     val endereco: String = "",
     val telefone: String = "",
-    val horario: String = ""
-)
+    val horario: String = "",
+    val cidade: String = ""
+    )
+
+
 
 // --- 3. USUÁRIO ---
 data class Usuario(
