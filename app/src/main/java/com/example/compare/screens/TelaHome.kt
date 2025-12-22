@@ -67,7 +67,7 @@ fun TelaHome(
     var textoBusca by remember { mutableStateOf("") }
     val todosProdutos = remember { mutableStateListOf<ProdutoPreco>() }
 
-    // --- VARIÁVEL QUE FALTAVA ---
+    // Estado do Swipe to Refresh
     var isRefreshing by remember { mutableStateOf(false) }
 
     var sugestoesBusca by remember { mutableStateOf(emptyList<String>()) }
@@ -91,6 +91,7 @@ fun TelaHome(
     val scope = rememberCoroutineScope()
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
+    // --- ADICIONAR AO CARRINHO ---
     fun adicionarAoCarrinho(produto: ProdutoPreco) {
         val item = ItemLista(
             usuarioId = usuarioLogado,
@@ -116,17 +117,20 @@ fun TelaHome(
             }
     }
 
+    // --- AUTOCOMPLETE DA BUSCA ---
     LaunchedEffect(textoBusca) {
         if (textoBusca.length >= 3) {
             delay(500)
             val termo = textoBusca.lowercase()
 
+            // Busca nas ofertas
             db.collection("ofertas")
                 .whereGreaterThanOrEqualTo("nomePesquisa", termo)
                 .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
                 .limit(5).get().addOnSuccessListener { resOfertas ->
                     val nomes = resOfertas.documents.mapNotNull { it.getString("nomeProduto") }.toMutableList()
 
+                    // Busca no catálogo (produtos_base)
                     db.collection("produtos_base")
                         .whereGreaterThanOrEqualTo("nomePesquisa", termo)
                         .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
@@ -141,10 +145,12 @@ fun TelaHome(
         } else { expandirSugestoes = false }
     }
 
+    // --- VOLTAR (SAIR OU LIMPAR BUSCA) ---
     var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
     BackHandler(enabled = true) {
         if (textoBusca.isNotEmpty()) {
             textoBusca = ""; expandirSugestoes = false; carregandoMais = true; todosProdutos.clear(); ultimoDocumento = null; temMais = true
+            // Recarrega feed inicial
             db.collection("ofertas").orderBy("data", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { result ->
                 for (doc in result) {
                     try {
@@ -164,6 +170,7 @@ fun TelaHome(
         }
     }
 
+    // --- CARREGAR PRODUTOS (FEED INICIAL) ---
     fun carregarProdutos(resetar: Boolean = false, onConcluido: () -> Unit = {}) {
         if (carregandoMais) { onConcluido(); return }
         carregandoMais = true
@@ -189,6 +196,7 @@ fun TelaHome(
 
     LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
 
+    // --- BUSCA (HÍBRIDA: OFERTAS + CATÁLOGO) ---
     fun buscarNoBanco(onConcluido: () -> Unit = {}) {
         expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
@@ -199,6 +207,7 @@ fun TelaHome(
         val termoBusca = textoBusca.lowercase()
         val isBarcode = termoBusca.all { it.isDigit() } && termoBusca.length > 5
 
+        // 1. Busca Ofertas
         val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
@@ -211,24 +220,25 @@ fun TelaHome(
                 if (p.cidade.equals(cidadeAtual, ignoreCase = true) || p.cidade.isEmpty()) todosProdutos.add(p)
             }
 
+            // 2. Busca Catálogo (Se não achou nas ofertas ou para complementar)
             if (isBarcode) {
                 db.collection("produtos_base").document(termoBusca).get().addOnSuccessListener { docBase ->
                     if (docBase.exists()) {
                         val nome = docBase.getString("nomeProduto") ?: ""
                         val codigo = docBase.getString("codigoBarras") ?: ""
+                        // Cria objeto visual do catálogo (sem preço)
                         val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
-                        // Só adiciona se não tiver uma oferta exata igual já na lista (pra não duplicar visualmente)
+
+                        // Só adiciona se não tiver oferta ativa (para não duplicar visualmente)
                         if (todosProdutos.none { it.codigoBarras == codigo }) todosProdutos.add(prodCatalogo)
                     } else {
-                        // --- NOVO RECURSO: PRODUTO NÃO CADASTRADO ---
-                        // Se não existe na Base E não encontrou Ofertas (todosProdutos vazio)
+                        // --- PRODUTO NÃO ENCONTRADO EM LUGAR NENHUM ---
                         if (todosProdutos.isEmpty()) {
                             Toast.makeText(context, "Produto não cadastrado. Cadastre agora!", Toast.LENGTH_LONG).show()
-                            // Abre a tela de cadastro passando o código de barras
                             onIrCadastro(ProdutoPreco(
                                 codigoBarras = termoBusca,
                                 nomeProduto = "",
-                                mercado = "",
+                                mercado = "", // Vai vazio para usar o último
                                 valor = 0.0,
                                 data = Date(),
                                 cidade = "",
@@ -265,12 +275,9 @@ fun TelaHome(
     }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
-        // Se for produto do catálogo (sem preço), não tem detalhes para abrir, mas pode adicionar ao carrinho
-        if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") {
-            // Toast.makeText(context, "Item do catálogo. Use + para adicionar à lista.", Toast.LENGTH_SHORT).show()
-            // Agora temos o botão de lápis, então essa mensagem é menos necessária, mas pode manter se quiser
-            return
-        }
+        // Se for catálogo (sem preço), não abre detalhes, a ação é pelo botão de lápis/carrinho
+        if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") return
+
         carregandoDetalhes = true
         val query = if (produtoBase.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", produtoBase.nomeProduto)
         query.get().addOnSuccessListener { result ->
@@ -318,13 +325,14 @@ fun TelaHome(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 Column {
+                    // BARRA DE BUSCA
                     Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
                         OutlinedTextField(
                             value = textoBusca, onValueChange = { textoBusca = it }, label = { Text("Buscar produto...") }, leadingIcon = { Icon(Icons.Default.Search, null) },
                             trailingIcon = {
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
-                                    modifier = Modifier.size(50.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
+                                    modifier = Modifier.size(60.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
                                         scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null) { textoBusca = rawValue; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() } }
                                             .addOnFailureListener { Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show() }
                                     }
@@ -340,6 +348,7 @@ fun TelaHome(
                         }
                     }
 
+                    // LISTA DE PRODUTOS
                     val grupos = todosProdutos.groupBy { if (it.codigoBarras.isNotEmpty()) it.codigoBarras else it.nomeProduto }
 
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -376,12 +385,15 @@ fun TelaHome(
                                                 Text("Catálogo", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                                             }
 
-                                            // --- NOVO RECURSO: BOTÕES DE AÇÃO ---
+                                            // --- BOTÕES DE AÇÃO ---
                                             Row {
-                                                // Se for item do catálogo (sem preço), mostra o lápis
+                                                // Se for item do catálogo (sem preço), mostra o LÁPIS para cadastrar preço
                                                 if (melhorOferta.valor == 0.0 && melhorOferta.mercado == "Catálogo Global") {
-                                                    IconButton(onClick = { onIrCadastro(melhorOferta) }, modifier = Modifier.size(30.dp)) {
-                                                        // PERSONALIZAÇÃO: Mude a cor do lápis (tint) se quiser
+                                                    IconButton(onClick = {
+                                                        // IMPORTANTE: Envia mercado = "" para acionar a memória do último mercado na TelaCadastro
+                                                        onIrCadastro(melhorOferta.copy(mercado = ""))
+                                                    }, modifier = Modifier.size(30.dp)) {
+                                                        // PERSONALIZAÇÃO: Cor do Lápis
                                                         Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
                                                     }
                                                     Spacer(modifier = Modifier.width(8.dp))
