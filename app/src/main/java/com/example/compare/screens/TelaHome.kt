@@ -217,7 +217,25 @@ fun TelaHome(
                         val nome = docBase.getString("nomeProduto") ?: ""
                         val codigo = docBase.getString("codigoBarras") ?: ""
                         val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
+                        // Só adiciona se não tiver uma oferta exata igual já na lista (pra não duplicar visualmente)
                         if (todosProdutos.none { it.codigoBarras == codigo }) todosProdutos.add(prodCatalogo)
+                    } else {
+                        // --- NOVO RECURSO: PRODUTO NÃO CADASTRADO ---
+                        // Se não existe na Base E não encontrou Ofertas (todosProdutos vazio)
+                        if (todosProdutos.isEmpty()) {
+                            Toast.makeText(context, "Produto não cadastrado. Cadastre agora!", Toast.LENGTH_LONG).show()
+                            // Abre a tela de cadastro passando o código de barras
+                            onIrCadastro(ProdutoPreco(
+                                codigoBarras = termoBusca,
+                                nomeProduto = "",
+                                mercado = "",
+                                valor = 0.0,
+                                data = Date(),
+                                cidade = "",
+                                id = "",
+                                usuarioId = ""
+                            ))
+                        }
                     }
                     carregandoMais = false; temMais = false; onConcluido()
                 }
@@ -247,8 +265,10 @@ fun TelaHome(
     }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
+        // Se for produto do catálogo (sem preço), não tem detalhes para abrir, mas pode adicionar ao carrinho
         if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") {
-            Toast.makeText(context, "Item do catálogo. Use + para adicionar à lista.", Toast.LENGTH_SHORT).show()
+            // Toast.makeText(context, "Item do catálogo. Use + para adicionar à lista.", Toast.LENGTH_SHORT).show()
+            // Agora temos o botão de lápis, então essa mensagem é menos necessária, mas pode manter se quiser
             return
         }
         carregandoDetalhes = true
@@ -287,7 +307,6 @@ fun TelaHome(
         },
         floatingActionButton = { FloatingActionButton(onClick = { onIrCadastro(null) }) { Icon(Icons.Default.Add, "Adicionar") } }
     ) { padding ->
-        // COMPONENTE CORRETO DA VERSÃO 1.3+
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = {
@@ -305,7 +324,7 @@ fun TelaHome(
                             trailingIcon = {
                                 Image(
                                     painter = painterResource(id = R.drawable.scancode), contentDescription = "Escanear", contentScale = ContentScale.Fit,
-                                    modifier = Modifier.size(60.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
+                                    modifier = Modifier.size(50.dp).padding(end = 8.dp).clip(RoundedCornerShape(4.dp)).clickable {
                                         scanner.startScan().addOnSuccessListener { barcode -> val rawValue = barcode.rawValue; if (rawValue != null) { textoBusca = rawValue; expandirSugestoes = false; buscarNoBanco(); focusManager.clearFocus() } }
                                             .addOnFailureListener { Toast.makeText(context, "Erro ao abrir câmera", Toast.LENGTH_SHORT).show() }
                                     }
@@ -356,8 +375,21 @@ fun TelaHome(
                                             } else {
                                                 Text("Catálogo", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                                             }
-                                            IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
-                                                Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
+
+                                            // --- NOVO RECURSO: BOTÕES DE AÇÃO ---
+                                            Row {
+                                                // Se for item do catálogo (sem preço), mostra o lápis
+                                                if (melhorOferta.valor == 0.0 && melhorOferta.mercado == "Catálogo Global") {
+                                                    IconButton(onClick = { onIrCadastro(melhorOferta) }, modifier = Modifier.size(30.dp)) {
+                                                        // PERSONALIZAÇÃO: Mude a cor do lápis (tint) se quiser
+                                                        Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                }
+
+                                                IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
+                                                    Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
+                                                }
                                             }
                                         }
                                     }
