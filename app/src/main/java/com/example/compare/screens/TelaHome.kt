@@ -204,14 +204,26 @@ fun TelaHome(
         carregandoMais = true
         todosProdutos.clear()
 
-        val termoBusca = textoBusca.lowercase()
+        val termoBusca = textoBusca.lowercase().trim()
         val isBarcode = termoBusca.all { it.isDigit() } && termoBusca.length > 5
 
         // 1. Busca Ofertas
         val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
-            db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff").limit(20)
+            // --- NOVA LÓGICA DE BUSCA POR PALAVRAS-CHAVE ---
+            // Divide o texto digitado em palavras (ex: "arroz branco" -> ["arroz", "branco"])
+            val termos = termoBusca.split(" ").filter { it.isNotBlank() }.take(10) // Limite do Firestore
+
+            if (termos.isNotEmpty()) {
+                // Busca se o array 'palavrasChave' no banco contém ALGUM dos termos digitados
+                db.collection("ofertas")
+                    .whereArrayContainsAny("palavrasChave", termos)
+                    .limit(20)
+            } else {
+                // Fallback (caso dê erro na divisão de string)
+                db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).limit(20)
+            }
         }
 
         queryOfertas.get().addOnSuccessListener { resOfertas ->
@@ -251,6 +263,7 @@ fun TelaHome(
                     carregandoMais = false; temMais = false; onConcluido()
                 }
             } else {
+                // Busca no Catálogo (Mantido por prefixo pois o catálogo base talvez não tenha palavrasChave ainda)
                 db.collection("produtos_base")
                     .whereGreaterThanOrEqualTo("nomePesquisa", termoBusca)
                     .whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff")

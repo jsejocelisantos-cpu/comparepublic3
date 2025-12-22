@@ -7,7 +7,12 @@ data class ProdutoPreco(
     val id: String = "",
     val codigoBarras: String = "",
     val nomeProduto: String = "",
-    val nomePesquisa: String = "", // <--- NOVO CAMPO PARA A BUSCA
+    val nomePesquisa: String = "", // Usado para ordenação ou busca antiga
+
+    // --- NOVO CAMPO: LISTA DE PALAVRAS-CHAVE ---
+    // Armazena cada palavra do nome separadamente para busca flexível (ex: "arroz", "tio")
+    val palavrasChave: List<String> = emptyList(),
+
     val valor: Double = 0.0,
     val mercado: String = "",
     val cidade: String = "",
@@ -28,9 +33,7 @@ data class DadosMercado(
     val telefone: String = "",
     val horario: String = "",
     val cidade: String = ""
-    )
-
-
+)
 
 // --- 3. USUÁRIO ---
 data class Usuario(
@@ -47,9 +50,8 @@ data class MensagemSuporte(
     val resposta: String = "",
     val dataResposta: Date? = null
 )
-// ... (mantenha as classes anteriores: ProdutoPreco, Usuario, etc.)
 
-// --- NOVO MODELO: Item da Lista de Compras ---
+// --- 5. ITEM DA LISTA DE COMPRAS ---
 data class ItemLista(
     val id: String = "",
     val usuarioId: String = "",

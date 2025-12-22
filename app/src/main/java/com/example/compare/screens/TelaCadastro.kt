@@ -369,6 +369,10 @@ fun TelaCadastro(
                                 val nomeBonito = capitalizarTexto(nomeProduto)
                                 val mercadoBonito = capitalizarTexto(mercado)
 
+                                // --- GERAÇÃO DE PALAVRAS-CHAVE PARA BUSCA INTELIGENTE ---
+                                // Quebra o nome em palavras minúsculas e remove vazios
+                                val listaPalavras = nomeBonito.lowercase().split(" ").filter { it.isNotBlank() }
+
                                 // --- VERIFICAÇÃO DE DUPLICIDADE NO BANCO ---
                                 val ofertasRef = db.collection("ofertas")
 
@@ -395,6 +399,7 @@ fun TelaCadastro(
                                             usuarioId = usuarioNome,
                                             nomeProduto = nomeBonito,
                                             nomePesquisa = nomeBonito.lowercase(),
+                                            palavrasChave = listaPalavras, // --- SALVA AS PALAVRAS AQUI ---
                                             mercado = mercadoBonito,
                                             valor = valorFinal,
                                             data = Date(),
