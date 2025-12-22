@@ -29,8 +29,6 @@ import com.example.compare.utils.*
 import com.google.firebase.firestore.FirebaseFirestore
 import java.util.Date
 
-// --- ESTE ARQUIVO CONTÉM APENAS OS DIÁLOGOS PARA LIMPAR A TELA HOME ---
-
 @Composable
 fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
     val db = FirebaseFirestore.getInstance()
@@ -103,75 +101,177 @@ fun DialogoSuporteUsuario(usuarioLogado: String, onDismiss: () -> Unit) {
 }
 
 @Composable
-fun DialogoRankingDetalhes(grupoOfertas: List<ProdutoPreco>, usuarioLogado: String, isAdmin: Boolean, onDismiss: () -> Unit, onIrCadastro: (ProdutoPreco) -> Unit, onDelete: (String) -> Unit, onUpdate: (ProdutoPreco) -> Unit, onNovoComentario: (String, String) -> Unit, onApagarComentario: (String, String) -> Unit, onEditarComentario: (String, String, String) -> Unit) {
+fun DialogoRankingDetalhes(
+    grupoOfertas: List<ProdutoPreco>,
+    usuarioLogado: String,
+    isAdmin: Boolean,
+    onDismiss: () -> Unit,
+    onIrCadastro: (ProdutoPreco) -> Unit,
+    onDelete: (String) -> Unit,
+    onUpdate: (ProdutoPreco) -> Unit,
+    onNovoComentario: (String, String) -> Unit,
+    onApagarComentario: (String, String) -> Unit,
+    onEditarComentario: (String, String, String) -> Unit,
+    onAtualizarNomeProduto: (String) -> Unit // --- NOVO CALLBACK PARA RENOMEAR PRODUTO ---
+) {
     val listaOrdenada = grupoOfertas.sortedBy { it.valor }
     val produtoBase = listaOrdenada.first()
     val todosComentarios = grupoOfertas.flatMap { oferta -> oferta.chatComentarios.map { comentario -> Pair(oferta.id, comentario) } }
+
     var ofertaEmEdicao by remember { mutableStateOf<ProdutoPreco?>(null) }
     var comentarioEmEdicao by remember { mutableStateOf<Pair<String, String>?>(null) }
     var mercadoSelecionado by remember { mutableStateOf<String?>(null) }
     var textoChat by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
 
+    // --- NOVOS ESTADOS PARA EDIÇÃO DE NOME E MERCADO (ADMIN) ---
+    var ofertaParaEditarMercado by remember { mutableStateOf<ProdutoPreco?>(null) }
+    var editandoNomeProduto by remember { mutableStateOf(false) }
+    var novoNomeProduto by remember { mutableStateOf(produtoBase.nomeProduto) }
+
+    // --- DIÁLOGOS AUXILIARES ---
+
     if (mercadoSelecionado != null) {
         DialogoDadosMercado(nomeMercado = mercadoSelecionado!!, isAdmin = isAdmin, onDismiss = { mercadoSelecionado = null })
     }
     else if (ofertaEmEdicao != null) {
-        // Renomeado para DialogoEditarOferta para evitar conflito com outros arquivos
         DialogoEditarOferta(
             oferta = ofertaEmEdicao!!,
             onCancel = { ofertaEmEdicao = null },
-            onSave = { novaOferta: ProdutoPreco -> // Tipo explícito adicionado para corrigir erro de inferência
-                onUpdate(novaOferta)
-                ofertaEmEdicao = null
-            }
+            onSave = { novaOferta: ProdutoPreco -> onUpdate(novaOferta); ofertaEmEdicao = null }
         )
     }
     else if (comentarioEmEdicao != null) {
         var textoEditado by remember { mutableStateOf(comentarioEmEdicao!!.second.split(": ", limit = 2).getOrElse(1) { "" }) }
         AlertDialog(onDismissRequest = { comentarioEmEdicao = null }, title = { Text("Editar Comentário") }, text = { OutlinedTextField(value = textoEditado, onValueChange = { textoEditado = it }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (textoEditado.isNotBlank()) { onEditarComentario(comentarioEmEdicao!!.first, comentarioEmEdicao!!.second, textoEditado); comentarioEmEdicao = null } }) { Text("Salvar") } }, dismissButton = { TextButton(onClick = { comentarioEmEdicao = null }) { Text("Cancelar") } })
-    } else {
-        AlertDialog(onDismissRequest = onDismiss, title = { Text(produtoBase.nomeProduto, fontWeight = FontWeight.Bold) }, text = {
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
-                if (ofertaComFoto != null) { item { val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64); if (bitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) { Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } } } }
-                items(listaOrdenada) { oferta ->
-                    Column {
-                        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(text = oferta.mercado, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF03A9F4), modifier = Modifier.clickable { mercadoSelecionado = oferta.mercado })
-                                Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                                if (oferta.comentario.isNotEmpty()) Text("Obs: ${oferta.comentario}", style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("R$ ${String.format("%.2f", oferta.valor)}", color = if (oferta == listaOrdenada.first()) Color(0xFF006400) else Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                Row { IconButton(onClick = { ofertaEmEdicao = oferta }) { Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(20.dp), tint = Color.Blue) }; if (isAdmin) { IconButton(onClick = { onDelete(oferta.id) }) { Icon(Icons.Default.Delete, "Excluir", modifier = Modifier.size(20.dp), tint = Color.Red) } } }
-                            }
+    }
+
+    // --- DIÁLOGO PARA EDITAR NOME DO PRODUTO (ADMIN) ---
+    if (editandoNomeProduto) {
+        AlertDialog(
+            onDismissRequest = { editandoNomeProduto = false },
+            title = { Text("Renomear Produto") },
+            text = {
+                Column {
+                    Text("Isso alterará o nome em TODAS as ofertas deste produto.", fontSize = 12.sp, color = Color.Red)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = novoNomeProduto, onValueChange = { novoNomeProduto = it }, label = { Text("Novo Nome") }, modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (novoNomeProduto.isNotBlank()) {
+                        onAtualizarNomeProduto(novoNomeProduto)
+                        editandoNomeProduto = false
+                    }
+                }) { Text("Salvar") }
+            },
+            dismissButton = { TextButton(onClick = { editandoNomeProduto = false }) { Text("Cancelar") } }
+        )
+    }
+
+    // --- DIÁLOGO PARA EDITAR NOME DO MERCADO (ADMIN) ---
+    if (ofertaParaEditarMercado != null) {
+        var novoNomeMercado by remember { mutableStateOf(ofertaParaEditarMercado!!.mercado) }
+        AlertDialog(
+            onDismissRequest = { ofertaParaEditarMercado = null },
+            title = { Text("Renomear Mercado") },
+            text = { OutlinedTextField(value = novoNomeMercado, onValueChange = { novoNomeMercado = it }, label = { Text("Novo Nome do Mercado") }, modifier = Modifier.fillMaxWidth()) },
+            confirmButton = {
+                Button(onClick = {
+                    if (novoNomeMercado.isNotBlank()) {
+                        onUpdate(ofertaParaEditarMercado!!.copy(mercado = novoNomeMercado)) // Salva o novo nome
+                        ofertaParaEditarMercado = null
+                    }
+                }) { Text("Salvar") }
+            },
+            dismissButton = { TextButton(onClick = { ofertaParaEditarMercado = null }) { Text("Cancelar") } }
+        )
+    }
+
+    // --- DIÁLOGO PRINCIPAL (LISTA DE OFERTAS) ---
+    // (Só mostra se nenhum dos sub-diálogos acima estiver ativo, exceto os de edição simples que controlam seu próprio estado)
+    if (mercadoSelecionado == null && ofertaEmEdicao == null && comentarioEmEdicao == null && !editandoNomeProduto && ofertaParaEditarMercado == null) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = {
+                // --- TÍTULO EDITÁVEL (ADMIN) ---
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        produtoBase.nomeProduto,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f) // Ocupa o espaço disponível
+                    )
+                    if (isAdmin) {
+                        IconButton(onClick = {
+                            novoNomeProduto = produtoBase.nomeProduto
+                            editandoNomeProduto = true
+                        }) {
+                            Icon(Icons.Default.Edit, "Editar Nome Produto", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         }
-                        Divider(modifier = Modifier.padding(vertical = 4.dp))
                     }
                 }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp)); Text("Comentários", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.height(8.dp))
-                    if (todosComentarios.isEmpty()) { Text("Seja o primeiro a comentar!", fontSize = 12.sp, color = Color.Gray) }
-                    else { todosComentarios.forEach { (idOferta, msg) -> val isOwner = msg.startsWith("$usuarioLogado: "); Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(vertical = 2.dp).fillMaxWidth()) { Column(modifier = Modifier.padding(8.dp)) { Text(msg, fontSize = 13.sp); if (isOwner || isAdmin) { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { if (isOwner) { IconButton(onClick = { comentarioEmEdicao = Pair(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Edit, "Editar", tint = Color.Gray) } }; IconButton(onClick = { onApagarComentario(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Apagar", tint = Color.Red) } } } } } } }
-                    Spacer(modifier = Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(value = textoChat, onValueChange = { textoChat = it }, placeholder = { Text("Escreva um comentário...", fontSize = 12.sp) }, modifier = Modifier.weight(1f).height(56.dp), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } })); IconButton(onClick = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) } }
+            },
+            text = {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    val ofertaComFoto = listaOrdenada.firstOrNull { it.fotoBase64.isNotEmpty() }
+                    if (ofertaComFoto != null) { item { val bitmap = stringParaBitmap(ofertaComFoto.fotoBase64); if (bitmap != null) { Box(modifier = Modifier.fillMaxWidth().height(150.dp).padding(bottom = 10.dp), contentAlignment = Alignment.Center) { Image(bitmap = bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } } } }
+                    items(listaOrdenada) { oferta ->
+                        Column {
+                            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    // --- NOME DO MERCADO EDITÁVEL (ADMIN) ---
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = oferta.mercado,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp,
+                                            color = Color(0xFF03A9F4),
+                                            modifier = Modifier.clickable { mercadoSelecionado = oferta.mercado }
+                                        )
+                                        if (isAdmin) {
+                                            Spacer(Modifier.width(8.dp))
+                                            IconButton(
+                                                onClick = { ofertaParaEditarMercado = oferta },
+                                                modifier = Modifier.size(18.dp) // Personalize: Tamanho do ícone lápis mercado
+                                            ) {
+                                                Icon(Icons.Default.Edit, "Editar Mercado", tint = Color.Gray)
+                                            }
+                                        }
+                                    }
+
+                                    Text("Por: ${oferta.usuarioId} • ${formatarData(oferta.data)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                    if (oferta.comentario.isNotEmpty()) Text("Obs: ${oferta.comentario}", style = MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("R$ ${String.format("%.2f", oferta.valor)}", color = if (oferta == listaOrdenada.first()) Color(0xFF006400) else Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    Row { IconButton(onClick = { ofertaEmEdicao = oferta }) { Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(20.dp), tint = Color.Blue) }; if (isAdmin) { IconButton(onClick = { onDelete(oferta.id) }) { Icon(Icons.Default.Delete, "Excluir", modifier = Modifier.size(20.dp), tint = Color.Red) } } }
+                                }
+                            }
+                            Divider(modifier = Modifier.padding(vertical = 4.dp))
+                        }
+                    }
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp)); Text("Comentários", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.height(8.dp))
+                        if (todosComentarios.isEmpty()) { Text("Seja o primeiro a comentar!", fontSize = 12.sp, color = Color.Gray) }
+                        else { todosComentarios.forEach { (idOferta, msg) -> val isOwner = msg.startsWith("$usuarioLogado: "); Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333)), modifier = Modifier.padding(vertical = 2.dp).fillMaxWidth()) { Column(modifier = Modifier.padding(8.dp)) { Text(msg, fontSize = 13.sp); if (isOwner || isAdmin) { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { if (isOwner) { IconButton(onClick = { comentarioEmEdicao = Pair(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Edit, "Editar", tint = Color.Gray) } }; IconButton(onClick = { onApagarComentario(idOferta, msg) }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Apagar", tint = Color.Red) } } } } } } }
+                        Spacer(modifier = Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(value = textoChat, onValueChange = { textoChat = it }, placeholder = { Text("Escreva um comentário...", fontSize = 12.sp) }, modifier = Modifier.weight(1f).height(56.dp), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } })); IconButton(onClick = { if (textoChat.isNotBlank()) { onNovoComentario(produtoBase.id, textoChat); textoChat = ""; focusManager.clearFocus() } }) { Icon(Icons.Default.Send, null, tint = MaterialTheme.colorScheme.primary) } }
+                    }
                 }
-            }
-        },
+            },
             confirmButton = {
-                // --- ATUALIZADO: Limpa o mercado para permitir seleção manual ---
                 Button(onClick = {
                     onDismiss()
                     onIrCadastro(produtoBase.copy(
-                        id = "",          // Novo ID
-                        mercado = "",     // VAZIO: Usuário seleciona manualmente
-                        valor = 0.0,      // Reseta valor
-                        usuarioId = ""    // Reseta usuário
+                        id = "",
+                        mercado = "",
+                        valor = 0.0,
+                        usuarioId = ""
                     ))
                 }) { Text("Adicionar Outro Mercado") }
             },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } })
+
     }
 }
 
@@ -197,7 +297,6 @@ fun DialogoLocalizacao(onDismiss: () -> Unit, onConfirmar: (String, String) -> U
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Selecionar Local") }, text = { Column(modifier = Modifier.fillMaxWidth()) { Text(text = "Estado:", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)); LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { items(dadosBrasil.keys.sorted()) { uf -> FilterChip(selected = estadoSel == uf, onClick = { estadoSel = uf; buscaCidade = "" }, label = { Text(uf) }) } }; Spacer(modifier = Modifier.height(16.dp)); OutlinedTextField(value = buscaCidade, onValueChange = { buscaCidade = it }, label = { Text("Buscar cidade...") }, modifier = Modifier.fillMaxWidth(), singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }), trailingIcon = { if (buscaCidade.isNotEmpty()) { IconButton(onClick = { buscaCidade = "" }) { Icon(Icons.Default.Close, "Limpar") } } else { Icon(Icons.Default.Search, null) } }); Spacer(modifier = Modifier.height(8.dp)); val cidadesFiltradas = dadosBrasil[estadoSel]?.filter { it.contains(buscaCidade, ignoreCase = true) } ?: emptyList(); LazyColumn(modifier = Modifier.height(200.dp)) { items(cidadesFiltradas) { cidade -> Row(modifier = Modifier.fillMaxWidth().clickable { cidadeSel = cidade }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = (cidadeSel == cidade), onClick = null); Text(text = cidade, modifier = Modifier.padding(start = 8.dp)) }; Divider(color = Color.LightGray, thickness = 0.5.dp) } } } }, confirmButton = { Button(onClick = { if (cidadeSel.isNotEmpty()) { onConfirmar(estadoSel, cidadeSel) } else { val primeiraCidade = dadosBrasil[estadoSel]?.firstOrNull() ?: ""; onConfirmar(estadoSel, primeiraCidade) } }) { Text("Confirmar") } })
 }
 
-// Renomeei de TelaEdicaoInterna para DialogoEditarOferta para evitar conflito
 @Composable
 fun DialogoEditarOferta(oferta: ProdutoPreco, onCancel: () -> Unit, onSave: (ProdutoPreco) -> Unit) {
     var valor by remember { mutableStateOf(oferta.valor.toString()) }

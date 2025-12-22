@@ -211,17 +211,12 @@ fun TelaHome(
         val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
-            // --- NOVA LÓGICA DE BUSCA POR PALAVRAS-CHAVE ---
-            // Divide o texto digitado em palavras (ex: "arroz branco" -> ["arroz", "branco"])
-            val termos = termoBusca.split(" ").filter { it.isNotBlank() }.take(10) // Limite do Firestore
-
+            val termos = termoBusca.split(" ").filter { it.isNotBlank() }.take(10)
             if (termos.isNotEmpty()) {
-                // Busca se o array 'palavrasChave' no banco contém ALGUM dos termos digitados
                 db.collection("ofertas")
                     .whereArrayContainsAny("palavrasChave", termos)
                     .limit(20)
             } else {
-                // Fallback (caso dê erro na divisão de string)
                 db.collection("ofertas").whereGreaterThanOrEqualTo("nomePesquisa", termoBusca).limit(20)
             }
         }
@@ -238,24 +233,19 @@ fun TelaHome(
                     if (docBase.exists()) {
                         val nome = docBase.getString("nomeProduto") ?: ""
                         val codigo = docBase.getString("codigoBarras") ?: ""
-                        // Cria objeto visual do catálogo (sem preço)
                         val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
-
-                        // Só adiciona se não tiver oferta ativa (para não duplicar visualmente)
                         if (todosProdutos.none { it.codigoBarras == codigo }) todosProdutos.add(prodCatalogo)
                     } else {
-                        // --- PRODUTO NÃO ENCONTRADO EM LUGAR NENHUM ---
                         if (todosProdutos.isEmpty()) {
                             Toast.makeText(context, "Produto não cadastrado. Cadastre agora!", Toast.LENGTH_LONG).show()
-                            // Abre o cadastro limpando o ID para criar um novo
                             onIrCadastro(ProdutoPreco(
                                 codigoBarras = termoBusca,
                                 nomeProduto = "",
-                                mercado = "", // Vai vazio para usar o último
+                                mercado = "",
                                 valor = 0.0,
                                 data = Date(),
                                 cidade = "",
-                                id = "", // Garante que é novo
+                                id = "",
                                 usuarioId = ""
                             ))
                         }
@@ -263,7 +253,6 @@ fun TelaHome(
                     carregandoMais = false; temMais = false; onConcluido()
                 }
             } else {
-                // Busca no Catálogo (Mantido por prefixo pois o catálogo base talvez não tenha palavrasChave ainda)
                 db.collection("produtos_base")
                     .whereGreaterThanOrEqualTo("nomePesquisa", termoBusca)
                     .whereLessThanOrEqualTo("nomePesquisa", termoBusca + "\uf8ff")
@@ -289,7 +278,6 @@ fun TelaHome(
     }
 
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
-        // Se for catálogo (sem preço), não abre detalhes, a ação é pelo botão de lápis/carrinho
         if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") return
 
         carregandoDetalhes = true
@@ -306,7 +294,7 @@ fun TelaHome(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(painter = painterResource(id = R.drawable.logohome2), contentDescription = "Logo", modifier = Modifier.size(180.dp)) // Personalize: Tamanho do logo
+                        Image(painter = painterResource(id = R.drawable.logohome2), contentDescription = "Logo", modifier = Modifier.size(180.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Column { Text(cidadeAtual, fontSize = 12.sp, fontWeight = FontWeight.Normal) }
                     }
@@ -321,7 +309,7 @@ fun TelaHome(
                         DropdownMenuItem(text = { Text("Sobre o App") }, onClick = { menuExpandido = false; mostrarSobre = true })
                         DropdownMenuItem(text = { Text("Suporte") }, onClick = { menuExpandido = false; mostrarSuporte = true })
                         Divider()
-                        DropdownMenuItem(text = { Text("Sair", color = Color.Red) }, onClick = { menuExpandido = false; onSair() }) // Personalize: Cor do texto Sair
+                        DropdownMenuItem(text = { Text("Sair", color = Color.Red) }, onClick = { menuExpandido = false; onSair() })
                     }
                 }
             )
@@ -329,9 +317,9 @@ fun TelaHome(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { onIrCadastro(null) },
-                containerColor = MaterialTheme.colorScheme.primary // Personalize: Cor do botão flutuante (+), ex: Color.Blue
+                containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Icon(Icons.Default.Add, "Adicionar", tint = Color.White) // Personalize: Cor do ícone +
+                Icon(Icons.Default.Add, "Adicionar", tint = Color.White)
             }
         }
     ) { padding ->
@@ -350,7 +338,7 @@ fun TelaHome(
                     Box(modifier = Modifier.fillMaxWidth().padding(8.dp).zIndex(1f)) {
                         OutlinedTextField(
                             value = textoBusca, onValueChange = { textoBusca = it },
-                            label = { Text("Buscar produto...") }, // Personalize: Texto de dica da busca
+                            label = { Text("Buscar produto...") },
                             leadingIcon = { Icon(Icons.Default.Search, null) },
                             trailingIcon = {
                                 Image(
@@ -402,34 +390,29 @@ fun TelaHome(
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
                                             if (melhorOferta.valor > 0) {
-                                                Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) // Personalize: Cor do Preço
-                                                Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4)) // Personalize: Cor do nome do Mercado
+                                                Text("R$ ${String.format("%.2f", melhorOferta.valor)}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                Text(text = melhorOferta.mercado, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF03A9F4))
                                             } else {
                                                 Text("Catálogo", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                                             }
 
                                             // --- BOTÕES DE AÇÃO ---
                                             Row {
-                                                // LÁPIS (EDITAR/ADICIONAR PREÇO)
                                                 IconButton(onClick = {
-                                                    // --- CORREÇÃO APLICADA: ---
-                                                    // Ao clicar no lápis, forçamos o mercado a ser VAZIO ("") para que
-                                                    // o usuário tenha que selecionar o mercado atual manualmente.
                                                     onIrCadastro(melhorOferta.copy(
-                                                        id = "",          // FORÇA CRIAR NOVO REGISTRO
-                                                        mercado = "",     // <--- FORÇA VAZIO: Usuário seleciona manualmente
-                                                        valor = 0.0,      // FORÇA DIGITAR PREÇO
+                                                        id = "",
+                                                        mercado = "",
+                                                        valor = 0.0,
                                                         usuarioId = ""
                                                     ))
                                                 }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary) // Personalize: Cor do ícone lápis
+                                                    Icon(Icons.Default.Edit, "Adicionar Preço", tint = MaterialTheme.colorScheme.primary)
                                                 }
 
                                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                                // CARRINHO
                                                 IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
-                                                    Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary) // Personalize: Cor do ícone carrinho
+                                                    Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
                                                 }
                                             }
                                         }
@@ -461,7 +444,34 @@ fun TelaHome(
             onUpdate = { nova -> db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener { carregarProdutos(resetar = true) }; grupoSelecionadoParaDetalhes = null },
             onNovoComentario = { id, txt -> if(!temOfensa(txt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { carregarProdutos(resetar = true) } } },
             onApagarComentario = { id, txt -> val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList().apply { remove(txt) }; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } },
-            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) { val autor = old.split(": ", limit=2)[0]; nova[idx] = "$autor: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } } } }
+            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }; if(target != null) { val nova = target.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) { val autor = old.split(": ", limit=2)[0]; nova[idx] = "$autor: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } } } },
+            // --- LÓGICA DE ATUALIZAÇÃO DO NOME DO PRODUTO (GLOBAL) ---
+            onAtualizarNomeProduto = { novoNome ->
+                val nomeCap = capitalizarTexto(novoNome) // Usa função existente em TelaCadastro.kt
+                val palavras = nomeCap.lowercase().split(" ").filter { it.isNotBlank() }
+
+                val pBase = grupoSelecionadoParaDetalhes!!.first()
+                val query = if (pBase.codigoBarras.isNotEmpty())
+                    db.collection("ofertas").whereEqualTo("codigoBarras", pBase.codigoBarras)
+                else
+                    db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
+
+                query.get().addOnSuccessListener { result ->
+                    val batch = db.batch()
+                    for (doc in result) {
+                        batch.update(doc.reference, mapOf(
+                            "nomeProduto" to nomeCap,
+                            "nomePesquisa" to nomeCap.lowercase(),
+                            "palavrasChave" to palavras
+                        ))
+                    }
+                    batch.commit().addOnSuccessListener {
+                        Toast.makeText(context, "Produto renomeado com sucesso!", Toast.LENGTH_SHORT).show()
+                        grupoSelecionadoParaDetalhes = null // Fecha para atualizar
+                        carregarProdutos(resetar = true)
+                    }
+                }
+            }
         )
     }
 
