@@ -1,7 +1,5 @@
 package com.example.compare.utils
 
-// Adicione em utils/Uteis.kt ou crie utils/NetworkUtils.kt
-
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -43,6 +41,4 @@ suspend fun buscarProdutoOpenFoodFacts(codigoBarras: String): ProdutoExterno? {
             return@withContext null
         }
     }
-}
-class NetworkUtils {
 }

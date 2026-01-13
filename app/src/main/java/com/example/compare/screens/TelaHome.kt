@@ -196,6 +196,25 @@ fun TelaHome(
         }.addOnFailureListener { carregandoMais = false; onConcluido() }
     }
 
+    // --- FUNÇÃO RECUPERADA: Atualizar a lista de detalhes ao editar ---
+    fun atualizarDetalhesAbertos(produtoBase: ProdutoPreco) {
+        val query = if (produtoBase.codigoBarras.isNotEmpty())
+            db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras)
+        else
+            db.collection("ofertas").whereEqualTo("nomeProduto", produtoBase.nomeProduto)
+
+        query.get().addOnSuccessListener { result ->
+            val listaCompleta = result.map { doc -> doc.toObject(ProdutoPreco::class.java).copy(id = doc.id) }
+            val listaFiltrada = listaCompleta.filter { it.cidade.equals(cidadeAtual, ignoreCase = true) || it.cidade.isEmpty() }
+
+            if (listaFiltrada.isNotEmpty()) {
+                grupoSelecionadoParaDetalhes = listaFiltrada
+            } else {
+                grupoSelecionadoParaDetalhes = null
+            }
+        }
+    }
+
     fun carregarDetalhesCompletos(produtoBase: ProdutoPreco) {
         if (produtoBase.valor == 0.0 && produtoBase.mercado == "Catálogo Global") return
         carregandoDetalhes = true
@@ -301,11 +320,12 @@ fun TelaHome(
             isAdmin = isAdmin,
             onDismiss = { grupoSelecionadoParaDetalhes = null },
             onIrCadastro = onIrCadastro,
-            onDelete = { id -> db.collection("ofertas").document(id).delete().addOnSuccessListener { carregarProdutos(resetar = true); grupoSelecionadoParaDetalhes = null } },
-            onUpdate = { nova -> db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener { carregarProdutos(resetar = true); grupoSelecionadoParaDetalhes = null } },
-            onNovoComentario = { id, txt -> if(!temOfensa(txt)) db.collection("ofertas").document(id).update("chatComentarios", grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { carregarProdutos(resetar = true) } },
-            onApagarComentario = { id, txt -> val nova = grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios.toMutableList().apply { remove(txt) }; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } },
-            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val nova = grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) nova[idx] = "${old.split(":")[0]}: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { carregarProdutos(resetar = true) } } },
+            // CALLBACKS CORRIGIDOS: AGORA USAM atualizarDetalhesAbertos
+            onDelete = { id -> db.collection("ofertas").document(id).delete().addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) } },
+            onUpdate = { nova -> db.collection("ofertas").document(nova.id).set(nova).addOnSuccessListener { atualizarDetalhesAbertos(nova) } },
+            onNovoComentario = { id, txt -> if(!temOfensa(txt)) db.collection("ofertas").document(id).update("chatComentarios", grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) } },
+            onApagarComentario = { id, txt -> val nova = grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios.toMutableList().apply { remove(txt) }; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) } },
+            onEditarComentario = { id, old, newTxt -> if(!temOfensa(newTxt)) { val nova = grupoSelecionadoParaDetalhes!!.find { it.id == id }!!.chatComentarios.toMutableList(); val idx = nova.indexOf(old); if(idx != -1) nova[idx] = "${old.split(":")[0]}: $newTxt"; db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) } } },
 
             // ADMIN CALLBACKS
             onAtualizarNomeProduto = { novo -> val cap = capitalizarTextoHelper(novo); val words = cap.lowercase().split(" "); val pBase = grupoSelecionadoParaDetalhes!!.first(); val q = if (pBase.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", pBase.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto); q.get().addOnSuccessListener { res -> val b = db.batch(); res.forEach { b.update(it.reference, mapOf("nomeProduto" to cap, "nomePesquisa" to cap.lowercase(), "palavrasChave" to words)) }; b.commit().addOnSuccessListener { grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true) } } },
