@@ -56,7 +56,6 @@ import com.example.compare.model.ProdutoPreco
 import com.example.compare.utils.bitmapParaString
 import com.example.compare.utils.stringParaBitmap
 import com.example.compare.utils.temOfensa
-// Importa a função de busca na internet (garanta que o arquivo NetworkUtils.kt existe)
 import com.example.compare.utils.buscarProdutoOpenFoodFacts
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
@@ -85,11 +84,9 @@ fun TelaCadastro(
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
     val scope = rememberCoroutineScope()
 
-    // --- ESTADOS DOS CAMPOS ---
     var codigoBarras by remember { mutableStateOf(produtoPreenchido?.codigoBarras ?: "") }
     var nomeProduto by remember { mutableStateOf(produtoPreenchido?.nomeProduto ?: "") }
 
-    // --- PREÇO (R$) ---
     var valorRaw by remember { mutableStateOf(if (produtoPreenchido != null && produtoPreenchido.valor > 0) (produtoPreenchido.valor * 100).toLong().toString() else "") }
     val valorFormatado = remember(valorRaw) {
         try {
@@ -99,7 +96,6 @@ fun TelaCadastro(
         } catch (e: Exception) { "" }
     }
 
-    // --- MERCADO ---
     var mercado by remember {
         mutableStateOf(if (produtoPreenchido?.mercado?.isNotEmpty() == true) produtoPreenchido.mercado else ultimoMercado)
     }
@@ -109,7 +105,6 @@ fun TelaCadastro(
     var mostrarCamera by remember { mutableStateOf(false) }
     var mostrarOpcoesFoto by remember { mutableStateOf(false) }
 
-    // Launcher Galeria
     val galleryLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             try {
@@ -142,18 +137,15 @@ fun TelaCadastro(
     var buscandoProduto by remember { mutableStateOf(false) }
     var buscandoWeb by remember { mutableStateOf(false) }
 
-    // --- BUSCA AUTOMÁTICA (CATÁLOGO -> OFERTAS -> WEB) ---
     LaunchedEffect(codigoBarras) {
         if (codigoBarras.length >= 8 && nomeProduto.isEmpty() && !buscandoProduto) {
             buscandoProduto = true
-            // 1. Busca no Catálogo Base
             db.collection("produtos_base").document(codigoBarras).get().addOnSuccessListener { doc ->
                 if (doc.exists()) {
                     nomeProduto = doc.getString("nomeProduto") ?: ""
                     Toast.makeText(context, "Produto encontrado no catálogo!", Toast.LENGTH_SHORT).show()
                     buscandoProduto = false
                 } else {
-                    // 2. Busca no Histórico de Ofertas
                     db.collection("ofertas").whereEqualTo("codigoBarras", codigoBarras).limit(1).get().addOnSuccessListener { res ->
                         if (!res.isEmpty) {
                             val p = res.documents[0].toObject(ProdutoPreco::class.java)
@@ -164,7 +156,6 @@ fun TelaCadastro(
                             }
                             buscandoProduto = false
                         } else {
-                            // 3. Busca na Web (Open Food Facts)
                             buscandoWeb = true
                             scope.launch(Dispatchers.Main) {
                                 val produtoWeb = buscarProdutoOpenFoodFacts(codigoBarras)
@@ -186,18 +177,15 @@ fun TelaCadastro(
         }
     }
 
-    // Carregar Mercados
     LaunchedEffect(Unit) {
         db.collection("mercados").get().addOnSuccessListener { res ->
             listaMercados = res.documents.mapNotNull { it.getString("nome") }.sorted()
         }
     }
 
-    // --- TELA CÂMERA ---
     if (mostrarCamera) {
         CameraPreview(onFotoTirada = { b -> fotoBase64 = bitmapParaString(b); mostrarCamera = false }, onFechar = { mostrarCamera = false })
     } else {
-        // --- DIALOG FOTO ---
         if (mostrarOpcoesFoto) {
             AlertDialog(
                 onDismissRequest = { mostrarOpcoesFoto = false },
@@ -219,8 +207,6 @@ fun TelaCadastro(
             }
         ) { padding ->
             LazyColumn(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
-
-                // 1. SCANNER + FOTO
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
@@ -241,13 +227,11 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
-                // 2. NOME
                 item {
                     OutlinedTextField(value = nomeProduto, onValueChange = { nomeProduto = it }, label = { Text("Nome do Produto") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 3. PREÇO
                 item {
                     OutlinedTextField(
                         value = valorFormatado,
@@ -260,7 +244,6 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 4. MERCADO
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
@@ -280,13 +263,11 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 5. OBS
                 item {
                     OutlinedTextField(value = comentario, onValueChange = { comentario = it }, label = { Text("Obs (opcional)") }, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // 6. BOTÃO SALVAR
                 item {
                     Button(
                         onClick = {
@@ -299,16 +280,14 @@ fun TelaCadastro(
                                 val valorFinal = (valorRaw.toLongOrNull() ?: 0L) / 100.0
                                 val nomeBonito = capitalizarTexto(nomeProduto)
                                 val mercadoBonito = capitalizarTexto(mercado)
-                                val listaPalavras = nomeBonito.lowercase().split(" ").filter { it.isNotBlank() } // Correção para busca
-
+                                val listaPalavras = nomeBonito.lowercase().split(" ").filter { it.isNotBlank() }
                                 val ofertasRef = db.collection("ofertas")
 
                                 ofertasRef.whereEqualTo("codigoBarras", codigoBarras).whereEqualTo("mercado", mercadoBonito).get().addOnSuccessListener { querySnapshot ->
-                                    // Se já existe no mercado, sobrescreve. Se não, mas veio de edição (ID existe), usa ID. Se não, novo.
                                     val idParaSalvar = if (!querySnapshot.isEmpty) querySnapshot.documents[0].id else if (produtoPreenchido?.id?.isNotEmpty() == true) produtoPreenchido.id else ""
 
                                     val nova = ProdutoPreco(
-                                        id = idParaSalvar, // O ID será definido no set
+                                        id = idParaSalvar,
                                         usuarioId = usuarioNome,
                                         nomeProduto = nomeBonito,
                                         nomePesquisa = nomeBonito.lowercase(),
@@ -322,9 +301,7 @@ fun TelaCadastro(
                                         estado = estadoSelecionado,
                                         cidade = cidadeSelecionada
                                     )
-
                                     val docRef = if (idParaSalvar.isNotEmpty()) ofertasRef.document(idParaSalvar) else ofertasRef.document()
-
                                     docRef.set(nova.copy(id = docRef.id)).addOnSuccessListener {
                                         db.collection("mercados").document(mercadoBonito).set(DadosMercado(mercadoBonito, mercadoBonito, "", "", "", cidadeSelecionada))
                                         Toast.makeText(context, if(idParaSalvar.isNotEmpty()) "Atualizado!" else "Criado!", Toast.LENGTH_SHORT).show()
@@ -361,7 +338,6 @@ suspend fun baixarImagemDaUrl(url: String): Bitmap? {
     }
 }
 
-// --- CORREÇÃO DA CÂMERA: USANDO addListener ---
 @Composable
 fun CameraPreview(onFotoTirada: (Bitmap) -> Unit, onFechar: () -> Unit) {
     val context = LocalContext.current
@@ -375,7 +351,7 @@ fun CameraPreview(onFotoTirada: (Bitmap) -> Unit, onFechar: () -> Unit) {
             factory = { ctx ->
                 val previewView = PreviewView(ctx)
 
-                // CORREÇÃO: Usar addListener para evitar bloqueio e garantir carregamento
+                // CORREÇÃO CRÍTICA: addListener para evitar bloqueio e garantir carregamento seguro
                 cameraProviderFuture.addListener({
                     try {
                         val cameraProvider = cameraProviderFuture.get()
@@ -388,7 +364,7 @@ fun CameraPreview(onFotoTirada: (Bitmap) -> Unit, onFechar: () -> Unit) {
                             cameraProvider.unbindAll()
                             cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
                         } catch(e: Exception) {
-                            // Log de erro de binding se necessário
+                            // Ignora erros de binding se a view já foi destruída
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
