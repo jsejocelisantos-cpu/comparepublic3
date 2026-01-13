@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
+
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <queries>
@@ -22,6 +23,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Compare"
         tools:targetApi="31">
+
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui"/>
 
         <activity
             android:name=".MainActivity"

@@ -145,17 +145,18 @@ fun TelaAdmin(onVoltar: () -> Unit) {
                                 }
                             }
                         }
-                        4 -> { // FERRAMENTAS (NOVO)
+                        4 -> { // FERRAMENTAS (IMPORTAR / LIMPAR)
                             item {
                                 Column {
                                     Text("Ferramentas de Banco de Dados", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                     Spacer(modifier = Modifier.height(16.dp))
 
+                                    // CARTÃO DE IMPORTAÇÃO
                                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF333333))) {
                                         Column(modifier = Modifier.padding(16.dp)) {
                                             Text("Importação de Produtos (CSV)", fontWeight = FontWeight.Bold, color = Color.White)
                                             Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Lê o arquivo 'res/raw/produtos.csv' e adiciona os itens ao Firestore na coleção 'produtos_base'. Use isso para popular o banco inicial.", fontSize = 12.sp, color = Color.LightGray)
+                                            Text("Lê o arquivo 'res/raw/produtos.csv' e adiciona os itens ao Firestore na coleção 'produtos_base'.", fontSize = 12.sp, color = Color.LightGray)
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Button(
                                                 onClick = {
@@ -166,6 +167,28 @@ fun TelaAdmin(onVoltar: () -> Unit) {
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Text("Iniciar Importação CSV")
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(20.dp))
+
+                                    // CARTÃO DE LIMPEZA (NOVO)
+                                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF500000))) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text("Limpeza de Dados (Cuidado!)", fontWeight = FontWeight.Bold, color = Color.White)
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text("Esta ação APAGA do banco de dados todos os produtos listados no arquivo CSV atual. Use para remover itens falsos ou duplicados gerados anteriormente.", fontSize = 12.sp, color = Color.LightGray)
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Button(
+                                                onClick = {
+                                                    // Chama a função utilitária de limpeza
+                                                    com.example.compare.utils.removerProdutosDoCsv(context)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text("APAGAR PRODUTOS DO CSV")
                                             }
                                         }
                                     }

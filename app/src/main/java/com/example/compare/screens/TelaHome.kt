@@ -1,5 +1,8 @@
 package com.example.compare.screens
 
+import com.example.compare.utils.GeminiService // Importe o serviço Gemini
+import java.util.Calendar //  checar a data
+
 import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -44,6 +47,8 @@ import com.example.compare.utils.*
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,20 +73,21 @@ fun TelaHome(
     var textoBusca by remember { mutableStateOf("") }
     val todosProdutos = remember { mutableStateListOf<ProdutoPreco>() }
 
-    // Estado do Swipe to Refresh
+    // Estados de UI
     var isRefreshing by remember { mutableStateOf(false) }
-
     var sugestoesBusca by remember { mutableStateOf(emptyList<String>()) }
     var expandirSugestoes by remember { mutableStateOf(false) }
-
     var grupoSelecionadoParaDetalhes by remember { mutableStateOf<List<ProdutoPreco>?>(null) }
     var carregandoDetalhes by remember { mutableStateOf(false) }
     var mostrarDialogoFiltro by remember { mutableStateOf(false) }
-
     var menuExpandido by remember { mutableStateOf(false) }
     var mostrarSobre by remember { mutableStateOf(false) }
     var mostrarSuporte by remember { mutableStateOf(false) }
 
+    // Estado para importação de Nota
+    var importandoNota by remember { mutableStateOf(false) }
+
+    // Paginação
     var ultimoDocumento by remember { mutableStateOf<DocumentSnapshot?>(null) }
     var carregandoMais by remember { mutableStateOf(false) }
     var temMais by remember { mutableStateOf(true) }
@@ -90,88 +96,23 @@ fun TelaHome(
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // Scanner Padrão (Código de Barras de Produto)
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
 
-    // --- ADICIONAR AO CARRINHO ---
-    fun adicionarAoCarrinho(produto: ProdutoPreco) {
-        val item = ItemLista(
-            usuarioId = usuarioLogado,
-            nomeProduto = produto.nomeProduto,
-            codigoBarras = produto.codigoBarras,
-            quantidade = 1,
-            comprado = false
-        )
-        db.collection("lista_compras")
-            .whereEqualTo("usuarioId", usuarioLogado)
-            .whereEqualTo("nomeProduto", produto.nomeProduto)
-            .get()
-            .addOnSuccessListener { res ->
-                if (!res.isEmpty) {
-                    val id = res.documents[0].id
-                    val qtdAtual = res.documents[0].getLong("quantidade") ?: 1
-                    db.collection("lista_compras").document(id).update("quantidade", qtdAtual + 1)
-                    Toast.makeText(context, "+1 ${produto.nomeProduto}", Toast.LENGTH_SHORT).show()
-                } else {
-                    db.collection("lista_compras").add(item)
-                    Toast.makeText(context, "Adicionado à lista!", Toast.LENGTH_SHORT).show()
-                }
-            }
+    // Scanner Específico para QR Code (Nota Fiscal)
+    val scannerNota = remember {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .build()
+        GmsBarcodeScanning.getClient(context, options)
     }
 
-    // --- AUTOCOMPLETE DA BUSCA ---
-    LaunchedEffect(textoBusca) {
-        if (textoBusca.length >= 3) {
-            delay(500)
-            val termo = textoBusca.lowercase()
+    // ====================================================================================
+    // --- 1. FUNÇÕES AUXILIARES DE CARREGAMENTO (DEVEM VIR ANTES DE SEREM CHAMADAS) ---
+    // ====================================================================================
 
-            // Busca nas ofertas
-            db.collection("ofertas")
-                .whereGreaterThanOrEqualTo("nomePesquisa", termo)
-                .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
-                .limit(5).get().addOnSuccessListener { resOfertas ->
-                    val nomes = resOfertas.documents.mapNotNull { it.getString("nomeProduto") }.toMutableList()
-
-                    // Busca no catálogo (produtos_base)
-                    db.collection("produtos_base")
-                        .whereGreaterThanOrEqualTo("nomePesquisa", termo)
-                        .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
-                        .limit(5).get().addOnSuccessListener { resBase ->
-                            val nomesBase = resBase.documents.mapNotNull { it.getString("nomeProduto") }
-                            nomes.addAll(nomesBase)
-                            val nomesUnicos = nomes.distinct()
-                            if (nomesUnicos.isNotEmpty()) { sugestoesBusca = nomesUnicos; expandirSugestoes = true }
-                            else { expandirSugestoes = false }
-                        }
-                }
-        } else { expandirSugestoes = false }
-    }
-
-    // --- VOLTAR (SAIR OU LIMPAR BUSCA) ---
-    var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
-    BackHandler(enabled = true) {
-        if (textoBusca.isNotEmpty()) {
-            textoBusca = ""; expandirSugestoes = false; carregandoMais = true; todosProdutos.clear(); ultimoDocumento = null; temMais = true
-            // Recarrega feed inicial
-            db.collection("ofertas").orderBy("data", Query.Direction.DESCENDING).limit(20).get().addOnSuccessListener { result ->
-                for (doc in result) {
-                    try {
-                        val produto = doc.toObject(ProdutoPreco::class.java).copy(id = doc.id)
-                        if (produto.cidade.equals(cidadeAtual, ignoreCase = true) || produto.cidade.isEmpty()) todosProdutos.add(produto)
-                    } catch (e: Exception) {}
-                }
-                if(!result.isEmpty) ultimoDocumento = result.documents[result.size() - 1]; carregandoMais = false
-            }
-        } else if (grupoSelecionadoParaDetalhes != null) {
-            grupoSelecionadoParaDetalhes = null
-        } else {
-            if (doubleBackToExitPressedOnce) (context as? Activity)?.finish() else {
-                doubleBackToExitPressedOnce = true; Toast.makeText(context, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
-                scope.launch { delay(2000); doubleBackToExitPressedOnce = false }
-            }
-        }
-    }
-
-    // --- CARREGAR PRODUTOS (FEED INICIAL) ---
+    // --- FUNÇÃO: CARREGAR PRODUTOS (FEED) ---
     fun carregarProdutos(resetar: Boolean = false, onConcluido: () -> Unit = {}) {
         if (carregandoMais) { onConcluido(); return }
         carregandoMais = true
@@ -195,9 +136,7 @@ fun TelaHome(
         }.addOnFailureListener { carregandoMais = false; onConcluido() }
     }
 
-    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
-
-    // --- BUSCA (HÍBRIDA: OFERTAS + CATÁLOGO) ---
+    // --- FUNÇÃO: BUSCA INTELIGENTE ---
     fun buscarNoBanco(onConcluido: () -> Unit = {}) {
         expandirSugestoes = false
         if(textoBusca.isBlank()) { carregarProdutos(resetar = true, onConcluido = onConcluido); return }
@@ -212,7 +151,7 @@ fun TelaHome(
         val queryOfertas = if (isBarcode) {
             db.collection("ofertas").whereEqualTo("codigoBarras", termoBusca).limit(20)
         } else {
-            // Busca por Array de Palavras (Smart Search)
+            // Lógica "Array Contains Any" para buscar por qualquer palavra
             val termos = termoBusca.split(" ").filter { it.isNotBlank() }.take(10)
             if (termos.isNotEmpty()) {
                 db.collection("ofertas")
@@ -272,16 +211,111 @@ fun TelaHome(
         }.addOnFailureListener { carregandoMais = false; onConcluido() }
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME && textoBusca.isBlank()) carregarProdutos(resetar = true) }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    // --- FUNÇÃO: ADICIONAR AO CARRINHO ---
+    fun adicionarAoCarrinho(produto: ProdutoPreco) {
+        val item = ItemLista(
+            usuarioId = usuarioLogado,
+            nomeProduto = produto.nomeProduto,
+            codigoBarras = produto.codigoBarras,
+            quantidade = 1,
+            comprado = false
+        )
+        db.collection("lista_compras")
+            .whereEqualTo("usuarioId", usuarioLogado)
+            .whereEqualTo("nomeProduto", produto.nomeProduto)
+            .get()
+            .addOnSuccessListener { res ->
+                if (!res.isEmpty) {
+                    val id = res.documents[0].id
+                    val qtdAtual = res.documents[0].getLong("quantidade") ?: 1
+                    db.collection("lista_compras").document(id).update("quantidade", qtdAtual + 1)
+                    Toast.makeText(context, "+1 ${produto.nomeProduto}", Toast.LENGTH_SHORT).show()
+                } else {
+                    db.collection("lista_compras").add(item)
+                    Toast.makeText(context, "Adicionado à lista!", Toast.LENGTH_SHORT).show()
+                }
+            }
     }
 
-    // --- FUNÇÃO PARA MANTER O DIÁLOGO ATUALIZADO (FIX LÁPIS SUMINDO) ---
+    // ====================================================================================
+    // --- 2. FUNÇÃO DE IMPORTAÇÃO (AGORA VAI RECONHECER carregarProdutos) ---
+    // ====================================================================================
+
+    fun processarImportacaoNota(url: String) {
+        importandoNota = true
+        scope.launch {
+            try {
+                // Chama a função do seu novo módulo NotaFiscalUtils
+                val produtosImportados = NotaFiscalUtils.importarNotaFiscalDaUrl(url)
+
+                if (produtosImportados.isNotEmpty()) {
+                    val batch = db.batch()
+                    var cont = 0
+
+                    // Prepara o objeto de Mercado para salvar/atualizar
+                    val nomeMercado = produtosImportados.first().mercado
+                    val docMercado = db.collection("mercados").document(nomeMercado)
+                    batch.set(docMercado, DadosMercado(id=nomeMercado, nome=nomeMercado, cidade=cidadeAtual), com.google.firebase.firestore.SetOptions.merge())
+
+                    for (p in produtosImportados) {
+                        // Se vier sem código, gera um ID temporário para não quebrar o banco
+                        val idDoc = if (p.codigoBarras.isNotEmpty()) p.codigoBarras else "TEMP_${p.nomeProduto.hashCode()}"
+
+                        val docRef = db.collection("ofertas").document()
+
+                        val keys = p.nomeProduto.lowercase().split(" ").filter { it.isNotBlank() }
+
+                        val ofertaFinal = p.copy(
+                            id = docRef.id,
+                            cidade = cidadeAtual,
+                            estado = estadoAtual,
+                            usuarioId = usuarioLogado,
+                            palavrasChave = keys,
+                            nomePesquisa = p.nomeProduto.lowercase()
+                        )
+
+                        batch.set(docRef, ofertaFinal)
+                        cont++
+                    }
+
+                    batch.commit().addOnSuccessListener {
+                        Toast.makeText(context, "$cont produtos importados com sucesso!", Toast.LENGTH_LONG).show()
+                        importandoNota = false
+                        // AGORA FUNCIONA PORQUE carregarProdutos JÁ FOI DECLARADA ACIMA
+                        carregarProdutos(resetar = true)
+                    }.addOnFailureListener {
+                        Toast.makeText(context, "Erro ao salvar no banco: ${it.message}", Toast.LENGTH_SHORT).show()
+                        importandoNota = false
+                    }
+                } else {
+                    Toast.makeText(context, "Não foi possível ler os itens da nota. Layout desconhecido.", Toast.LENGTH_LONG).show()
+                    importandoNota = false
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Erro na leitura da nota: ${e.message}", Toast.LENGTH_SHORT).show()
+                importandoNota = false
+            }
+        }
+    }
+
+    // --- SUGESTÕES DE BUSCA ---
+    LaunchedEffect(textoBusca) {
+        if (textoBusca.length >= 3) {
+            delay(500)
+            val termo = textoBusca.lowercase()
+            db.collection("ofertas")
+                .whereGreaterThanOrEqualTo("nomePesquisa", termo)
+                .whereLessThanOrEqualTo("nomePesquisa", termo + "\uf8ff")
+                .limit(5).get().addOnSuccessListener { resOfertas ->
+                    val nomes = resOfertas.documents.mapNotNull { it.getString("nomeProduto") }.toMutableList()
+                    if (nomes.isNotEmpty()) { sugestoesBusca = nomes.distinct(); expandirSugestoes = true }
+                    else expandirSugestoes = false
+                }
+        } else { expandirSugestoes = false }
+    }
+
+    // --- FUNÇÃO: ATUALIZAR DETALHES (MANTER ABERTO APÓS EDIÇÃO) ---
     fun atualizarDetalhesAbertos(produtoBase: ProdutoPreco) {
-        // Recarrega os dados do produto que está aberto no detalhe
         val query = if (produtoBase.codigoBarras.isNotEmpty())
             db.collection("ofertas").whereEqualTo("codigoBarras", produtoBase.codigoBarras)
         else
@@ -292,10 +326,8 @@ fun TelaHome(
             val listaFiltrada = listaCompleta.filter { it.cidade.equals(cidadeAtual, ignoreCase = true) || it.cidade.isEmpty() }
 
             if (listaFiltrada.isNotEmpty()) {
-                // Atualiza o estado, o que força o Compose a redesenhar o diálogo com os novos dados
                 grupoSelecionadoParaDetalhes = listaFiltrada
             } else {
-                // Se não sobrou nenhuma oferta (ex: tudo apagado), fecha o diálogo
                 grupoSelecionadoParaDetalhes = null
             }
         }
@@ -312,6 +344,32 @@ fun TelaHome(
         }.addOnFailureListener { carregandoDetalhes = false }
     }
 
+    // --- CONTROLE DE VOLTAR (BACK) ---
+    var doubleBackToExitPressedOnce by remember { mutableStateOf(false) }
+    BackHandler(enabled = true) {
+        if (textoBusca.isNotEmpty()) {
+            textoBusca = ""; expandirSugestoes = false; carregandoMais = true; todosProdutos.clear(); ultimoDocumento = null; temMais = true
+            carregarProdutos(resetar = true)
+        } else if (grupoSelecionadoParaDetalhes != null) {
+            grupoSelecionadoParaDetalhes = null
+        } else {
+            if (doubleBackToExitPressedOnce) (context as? Activity)?.finish() else {
+                doubleBackToExitPressedOnce = true; Toast.makeText(context, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
+                scope.launch { delay(2000); doubleBackToExitPressedOnce = false }
+            }
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME && textoBusca.isBlank()) carregarProdutos(resetar = true) }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(cidadeAtual) { carregarProdutos(resetar = true) }
+
+    // --- UI PRINCIPAL (SCAFFOLD) ---
     Scaffold(
         topBar = {
             TopAppBar(
@@ -325,6 +383,26 @@ fun TelaHome(
                 actions = {
                     IconButton(onClick = { menuExpandido = true }) { Icon(Icons.Default.MoreVert, "Menu") }
                     DropdownMenu(expanded = menuExpandido, onDismissRequest = { menuExpandido = false }) {
+                        // --- ITEM DO MENU: IMPORTAR NOTA ---
+                        DropdownMenuItem(
+                            text = { Text("Importar Nota (QR Code)", fontWeight = FontWeight.Bold, color = Color(0xFF006400)) },
+                            leadingIcon = { Icon(Icons.Default.QrCodeScanner, null, tint = Color(0xFF006400)) },
+                            onClick = {
+                                menuExpandido = false
+                                // Inicia Scanner de QR Code
+                                scannerNota.startScan()
+                                    .addOnSuccessListener { barcode ->
+                                        val rawValue = barcode.rawValue
+                                        if (rawValue != null && (rawValue.startsWith("http") || rawValue.contains("sefaz"))) {
+                                            processarImportacaoNota(rawValue)
+                                        } else {
+                                            Toast.makeText(context, "QR Code inválido ou não é uma URL de nota.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    .addOnFailureListener { Toast.makeText(context, "Erro ao abrir scanner", Toast.LENGTH_SHORT).show() }
+                            }
+                        )
+                        Divider()
                         DropdownMenuItem(text = { Text("Lista de Compras") }, leadingIcon = { Icon(Icons.Default.ShoppingCart, null) }, onClick = { menuExpandido = false; onIrListaCompras() })
                         DropdownMenuItem(text = { Text("Alterar Cidade") }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }, onClick = { menuExpandido = false; mostrarDialogoFiltro = true })
                         Divider()
@@ -421,8 +499,9 @@ fun TelaHome(
 
                                             // --- BOTÕES DE AÇÃO ---
                                             Row {
+                                                // LÁPIS (EDITAR/ADICIONAR PREÇO)
                                                 IconButton(onClick = {
-                                                    // Abre cadastro com mercado vazio para obrigar seleção manual
+                                                    // Limpa o campo 'mercado' para forçar a seleção manual
                                                     onIrCadastro(melhorOferta.copy(
                                                         id = "",
                                                         mercado = "",
@@ -435,6 +514,7 @@ fun TelaHome(
 
                                                 Spacer(modifier = Modifier.width(8.dp))
 
+                                                // CARRINHO
                                                 IconButton(onClick = { adicionarAoCarrinho(melhorOferta) }, modifier = Modifier.size(30.dp)) {
                                                     Icon(Icons.Default.AddShoppingCart, "Adicionar à Lista", tint = MaterialTheme.colorScheme.secondary)
                                                 }
@@ -447,13 +527,25 @@ fun TelaHome(
                         item { if (temMais && !carregandoMais) { Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { Button(onClick = { carregarProdutos() }) { Text("Carregar mais") } } } }
                     }
                 }
-                if (carregandoDetalhes) Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+
+                // --- FEEDBACK DE CARREGAMENTO (IMPORTAÇÃO E DETALHES) ---
+                if (carregandoDetalhes || importandoNota) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            if (importandoNota) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text("Lendo Nota Fiscal e salvando produtos...", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
     if (mostrarBannerBoasVindas) AlertDialog(onDismissRequest = onFecharBanner, icon = { Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary) }, title = { Text("Bem-vindo!") }, text = { Text("Ajude a comunidade a crescer e economizar adicionando e atualizando preços!", textAlign = TextAlign.Center) }, confirmButton = { Button(onClick = onFecharBanner, modifier = Modifier.fillMaxWidth()) { Text("Entendi, vamos lá!") } })
-    if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.0.0 (Beta)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
+    if (mostrarSobre) AlertDialog(onDismissRequest = { mostrarSobre = false }, title = { Text("Sobre") }, text = { Text("Versão: 1.1 (Com Leitor de Notas)") }, confirmButton = { TextButton(onClick = { mostrarSobre = false }) { Text("Fechar") } })
     if (mostrarSuporte) DialogoSuporteUsuario(usuarioLogado = usuarioLogado, onDismiss = { mostrarSuporte = false })
 
     if (grupoSelecionadoParaDetalhes != null) {
@@ -463,6 +555,7 @@ fun TelaHome(
             isAdmin = isAdmin,
             onDismiss = { grupoSelecionadoParaDetalhes = null },
             onIrCadastro = onIrCadastro,
+            // --- CALLBACKS DE AÇÃO ---
             onDelete = { id ->
                 db.collection("ofertas").document(id).delete().addOnSuccessListener {
                     atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first())
@@ -476,18 +569,14 @@ fun TelaHome(
             onNovoComentario = { id, txt ->
                 if(!temOfensa(txt)) {
                     val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
-                    if(target != null) {
-                        db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt")
-                            .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
-                    }
+                    if(target != null) db.collection("ofertas").document(id).update("chatComentarios", target.chatComentarios + "$usuarioLogado: $txt").addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
                 }
             },
             onApagarComentario = { id, txt ->
                 val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
                 if(target != null) {
                     val nova = target.chatComentarios.toMutableList().apply { remove(txt) }
-                    db.collection("ofertas").document(id).update("chatComentarios", nova)
-                        .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
+                    db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
                 }
             },
             onEditarComentario = { id, old, newTxt ->
@@ -495,99 +584,61 @@ fun TelaHome(
                     val target = grupoSelecionadoParaDetalhes!!.find { it.id == id }
                     if(target != null) {
                         val nova = target.chatComentarios.toMutableList()
-                        val idx = nova.indexOf(old)
-                        if(idx != -1) {
-                            val autor = old.split(": ", limit=2)[0]
-                            nova[idx] = "$autor: $newTxt"
-                            db.collection("ofertas").document(id).update("chatComentarios", nova)
-                                .addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
-                        }
+                        val idx = nova.indexOf(old); if(idx != -1) nova[idx] = "${old.split(":")[0]}: $newTxt"
+                        db.collection("ofertas").document(id).update("chatComentarios", nova).addOnSuccessListener { atualizarDetalhesAbertos(grupoSelecionadoParaDetalhes!!.first()) }
                     }
                 }
             },
+
+            // --- ADMIN: ATUALIZAR NOME DO PRODUTO (GLOBAL) ---
             onAtualizarNomeProduto = { novoNome ->
                 val nomeCap = capitalizarTextoHelper(novoNome)
                 val palavras = nomeCap.lowercase().split(" ").filter { it.isNotBlank() }
-
                 val pBase = grupoSelecionadoParaDetalhes!!.first()
-                val query = if (pBase.codigoBarras.isNotEmpty())
-                    db.collection("ofertas").whereEqualTo("codigoBarras", pBase.codigoBarras)
-                else
-                    db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
+                val query = if (pBase.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", pBase.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
 
                 query.get().addOnSuccessListener { result ->
                     val batch = db.batch()
-                    for (doc in result) {
-                        batch.update(doc.reference, mapOf(
-                            "nomeProduto" to nomeCap,
-                            "nomePesquisa" to nomeCap.lowercase(),
-                            "palavrasChave" to palavras
-                        ))
-                    }
+                    for (doc in result) batch.update(doc.reference, mapOf("nomeProduto" to nomeCap, "nomePesquisa" to nomeCap.lowercase(), "palavrasChave" to palavras))
                     batch.commit().addOnSuccessListener {
-                        Toast.makeText(context, "Produto renomeado com sucesso!", Toast.LENGTH_SHORT).show()
-                        grupoSelecionadoParaDetalhes = null
-                        carregarProdutos(resetar = true)
+                        Toast.makeText(context, "Produto renomeado!", Toast.LENGTH_SHORT).show()
+                        grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true)
                     }
                 }
             },
-            // --- NOVO: ATUALIZAR CÓDIGO DE BARRAS (GLOBAL) ---
+
+            // --- ADMIN: ATUALIZAR CÓDIGO DE BARRAS (GLOBAL) ---
             onAtualizarCodigoBarras = { novoCodigo ->
                 val pBase = grupoSelecionadoParaDetalhes!!.first()
                 val codigoAntigo = pBase.codigoBarras
-
-                // Busca ofertas para atualizar
-                val query = if (codigoAntigo.isNotEmpty())
-                    db.collection("ofertas").whereEqualTo("codigoBarras", codigoAntigo)
-                else
-                    db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
+                val query = if (codigoAntigo.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", codigoAntigo) else db.collection("ofertas").whereEqualTo("nomeProduto", pBase.nomeProduto)
 
                 query.get().addOnSuccessListener { result ->
                     val batch = db.batch()
+                    for (doc in result) batch.update(doc.reference, "codigoBarras", novoCodigo)
 
-                    // 1. Atualiza todas as ofertas
-                    for (doc in result) {
-                        batch.update(doc.reference, "codigoBarras", novoCodigo)
-                    }
-
-                    // 2. Se existia no catálogo, migra para o novo ID
                     if (codigoAntigo.isNotEmpty()) {
                         val docRefAntigo = db.collection("produtos_base").document(codigoAntigo)
                         docRefAntigo.get().addOnSuccessListener { docSnapshot ->
                             if (docSnapshot.exists()) {
-                                val dados = docSnapshot.data
-                                if (dados != null) {
-                                    val novosDados = dados.toMutableMap()
-                                    novosDados["codigoBarras"] = novoCodigo
-                                    // Cria novo e deleta antigo
-                                    batch.set(db.collection("produtos_base").document(novoCodigo), novosDados)
-                                    batch.delete(docRefAntigo)
-                                }
+                                val dados = docSnapshot.data!!.toMutableMap(); dados["codigoBarras"] = novoCodigo
+                                batch.set(db.collection("produtos_base").document(novoCodigo), dados)
+                                batch.delete(docRefAntigo)
                             }
-                            // Commit final
-                            batch.commit().addOnSuccessListener {
-                                Toast.makeText(context, "Código atualizado com sucesso!", Toast.LENGTH_SHORT).show()
-                                grupoSelecionadoParaDetalhes = null
-                                carregarProdutos(resetar = true)
-                            }
+                            batch.commit().addOnSuccessListener { Toast.makeText(context, "Código atualizado!", Toast.LENGTH_SHORT).show(); grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true) }
                         }
                     } else {
-                        // Se não tinha código antes, só commita as atualizações das ofertas
-                        batch.commit().addOnSuccessListener {
-                            Toast.makeText(context, "Código adicionado com sucesso!", Toast.LENGTH_SHORT).show()
-                            grupoSelecionadoParaDetalhes = null
-                            carregarProdutos(resetar = true)
-                        }
+                        batch.commit().addOnSuccessListener { Toast.makeText(context, "Código salvo!", Toast.LENGTH_SHORT).show(); grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true) }
                     }
                 }
             },
+
+            // --- ADMIN: ATUALIZAR NOME DO MERCADO (GLOBAL) ---
             onAtualizarNomeMercado = { nomeAntigo, nomeNovo ->
                 val novoCap = capitalizarTextoHelper(nomeNovo)
                 db.collection("ofertas").whereEqualTo("mercado", nomeAntigo).get().addOnSuccessListener { res ->
                     val batch = db.batch()
-                    for (doc in res) {
-                        batch.update(doc.reference, "mercado", novoCap)
-                    }
+                    for (doc in res) batch.update(doc.reference, "mercado", novoCap)
                     db.collection("mercados").document(nomeAntigo).get().addOnSuccessListener { docM ->
                         if(docM.exists()) {
                             val dados = docM.toObject(DadosMercado::class.java)!!.copy(nome = novoCap, id = novoCap)
@@ -597,37 +648,27 @@ fun TelaHome(
                         batch.commit().addOnSuccessListener {
                             Toast.makeText(context, "Mercado atualizado!", Toast.LENGTH_SHORT).show()
                             val base = grupoSelecionadoParaDetalhes!!.firstOrNull()
-                            if (base != null && base.mercado == nomeAntigo) {
-                                grupoSelecionadoParaDetalhes = null
-                                carregarProdutos(resetar = true)
-                            } else if (base != null) {
-                                atualizarDetalhesAbertos(base)
-                            }
+                            if (base != null && base.mercado == nomeAntigo) { grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true) } else if (base != null) { atualizarDetalhesAbertos(base) }
                         }
                     }
                 }
             },
-            onApagarMercado = { nomeMercado ->
-                db.collection("mercados").document(nomeMercado).delete().addOnSuccessListener {
-                    Toast.makeText(context, "Cadastro do Mercado Excluído!", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onApagarProdutoGlobal = { produto ->
-                val query = if(produto.codigoBarras.isNotEmpty())
-                    db.collection("ofertas").whereEqualTo("codigoBarras", produto.codigoBarras)
-                else
-                    db.collection("ofertas").whereEqualTo("nomeProduto", produto.nomeProduto)
 
+            // --- ADMIN: APAGAR MERCADO ---
+            onApagarMercado = { nomeMercado ->
+                db.collection("mercados").document(nomeMercado).delete().addOnSuccessListener { Toast.makeText(context, "Mercado excluído!", Toast.LENGTH_SHORT).show() }
+            },
+
+            // --- ADMIN: APAGAR PRODUTO GLOBAL ---
+            onApagarProdutoGlobal = { produto ->
+                val query = if(produto.codigoBarras.isNotEmpty()) db.collection("ofertas").whereEqualTo("codigoBarras", produto.codigoBarras) else db.collection("ofertas").whereEqualTo("nomeProduto", produto.nomeProduto)
                 query.get().addOnSuccessListener { res ->
                     val batch = db.batch()
                     for(d in res) batch.delete(d.reference)
-                    if(produto.codigoBarras.isNotEmpty()) {
-                        batch.delete(db.collection("produtos_base").document(produto.codigoBarras))
-                    }
+                    if(produto.codigoBarras.isNotEmpty()) batch.delete(db.collection("produtos_base").document(produto.codigoBarras))
                     batch.commit().addOnSuccessListener {
-                        Toast.makeText(context, "Produto e ofertas excluídos!", Toast.LENGTH_SHORT).show()
-                        grupoSelecionadoParaDetalhes = null
-                        carregarProdutos(resetar = true)
+                        Toast.makeText(context, "Produto excluído!", Toast.LENGTH_SHORT).show()
+                        grupoSelecionadoParaDetalhes = null; carregarProdutos(resetar = true)
                     }
                 }
             }
@@ -637,6 +678,7 @@ fun TelaHome(
     if (mostrarDialogoFiltro) DialogoLocalizacao(onDismiss = { mostrarDialogoFiltro = false }, onConfirmar = { est, cid -> onMudarFiltro(est, cid); mostrarDialogoFiltro = false })
 }
 
+// Função auxiliar local (caso não consiga importar de TelaCadastro)
 fun capitalizarTextoHelper(texto: String): String {
     return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
         palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }

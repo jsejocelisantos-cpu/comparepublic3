@@ -43,9 +43,13 @@ android {
 }
 
 dependencies {
+    // SDK do Gemini para Android
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+
+    implementation("org.jsoup:jsoup:1.22.1") //qrcode nota fiscal
 
     // camera
-    val cameraxVersion = "1.4.1"
+    val cameraxVersion = "1.5.2"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
@@ -53,22 +57,22 @@ dependencies {
 
 
         // FIREBASE (Banco de Dados)
-        implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+        implementation(platform("com.google.firebase:firebase-bom:34.7.0"))
         implementation("com.google.firebase:firebase-firestore")
 
         // ÍCONES EXTENDIDOS (Para ícones específicos do Material Design)
-        implementation("androidx.compose.material:material-icons-extended:1.6.0")
+        implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
         // NAVIGATON E ACTIVITY (Básico)
-        implementation("androidx.activity:activity-compose:1.8.2")
-        implementation("androidx.compose.ui:ui:1.6.0")
+        implementation("androidx.activity:activity-compose:1.12.2")
+        implementation("androidx.compose.ui:ui:1.10.0")
 
 
     // Scanner de Código de Barras (Google)
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 
     // Ícones extras (Lupa, etc)
-    implementation("androidx.compose.material:material-icons-extended:1.5.4")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

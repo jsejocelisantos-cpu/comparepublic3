@@ -61,6 +61,43 @@ fun importarProdutosDoCsv(context: Context) {
     // Aviso final (pode demorar um pouco para aparecer pois o processo é assíncrono)
     Toast.makeText(context, "Processando... Verifique o Logcat ou Firestore.", Toast.LENGTH_LONG).show()
 }
+// Adicione esta função no arquivo ImportacaoDados.kt
 
+fun removerProdutosDoCsv(context: Context) {
+    val db = FirebaseFirestore.getInstance()
+
+    // Abre o mesmo arquivo que foi usado para importar
+    val inputStream = context.resources.openRawResource(R.raw.produtos)
+    val reader = BufferedReader(InputStreamReader(inputStream))
+
+    var linha: String? = reader.readLine() // Pula o cabeçalho
+
+    var countDeletados = 0
+
+    Toast.makeText(context, "Iniciando remoção...", Toast.LENGTH_SHORT).show()
+
+    while (reader.readLine().also { linha = it } != null) {
+        try {
+            val colunas = linha!!.split(",")
+            if (colunas.isNotEmpty()) {
+                val codigoBarras = colunas[0].trim()
+
+                if (codigoBarras.isNotEmpty()) {
+                    // DELETA o documento da coleção produtos_base usando o código de barras como ID
+                    db.collection("produtos_base").document(codigoBarras)
+                        .delete()
+                        .addOnSuccessListener {
+                            countDeletados++
+                            Log.d("Limpeza", "Produto removido: $codigoBarras")
+                        }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Limpeza", "Erro ao ler linha para deletar", e)
+        }
+    }
+
+    Toast.makeText(context, "Processo de limpeza enviado ao banco.", Toast.LENGTH_LONG).show()
+}
 class ImportacaoDados {
 }
