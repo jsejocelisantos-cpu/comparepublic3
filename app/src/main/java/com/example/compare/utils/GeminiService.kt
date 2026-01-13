@@ -10,8 +10,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 object GeminiService {
-    // 1. Você precisa pegar essa chave em https://aistudio.google.com/
-    private const val API_KEY = "SUA_API_KEY_AQUI"
+
+    private const val API_KEY = "AIzaSyD373CUjEhZ338EbvErPIj4_Bns88NdNnU"
 
     // Usamos o modelo Flash que é mais rápido e barato
     private val generativeModel = GenerativeModel(
