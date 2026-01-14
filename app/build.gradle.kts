@@ -46,7 +46,6 @@ dependencies {
     // SDK do Gemini para Android
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
-    implementation("org.jsoup:jsoup:1.22.1") //qrcode nota fiscal
 
     // camera
     val cameraxVersion = "1.5.2"

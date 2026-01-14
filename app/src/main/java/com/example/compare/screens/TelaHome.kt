@@ -126,11 +126,36 @@ fun TelaHome(
                 if (docBase.exists()) {
                     val nome = docBase.getString("nomeProduto") ?: ""
                     val codigo = docBase.getString("codigoBarras") ?: ""
-                    val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
+                    // Gera palavras chave para o produto do catálogo
+                    val listaPalavras = nome.lowercase().split(" ").filter { it.isNotBlank() }
+
+                    val prodCatalogo = ProdutoPreco(
+                        id = "CATALOGO_$codigo",
+                        nomeProduto = nome,
+                        nomePesquisa = nome.lowercase(),
+                        palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                        codigoBarras = codigo,
+                        mercado = "Catálogo Global",
+                        valor = 0.0,
+                        usuarioId = "Sistema",
+                        data = Date(),
+                        cidade = ""
+                    )
                     if (todosProdutos.none { it.codigoBarras == codigo }) todosProdutos.add(prodCatalogo)
                 } else if (todosProdutos.isEmpty()) {
                     Toast.makeText(context, "Produto não encontrado. Cadastre agora!", Toast.LENGTH_LONG).show()
-                    onIrCadastro(ProdutoPreco(codigoBarras = termo, nomeProduto = "", mercado = "", valor = 0.0, data = Date(), cidade = "", id = "", usuarioId = ""))
+                    onIrCadastro(ProdutoPreco(
+                        codigoBarras = termo,
+                        nomeProduto = "",
+                        nomePesquisa = "",
+                        palavrasChave = emptyList(), // CORREÇÃO: Adicionado
+                        mercado = "",
+                        valor = 0.0,
+                        data = Date(),
+                        cidade = "",
+                        id = "",
+                        usuarioId = ""
+                    ))
                 }
                 carregandoMais = false; temMais = false; onConcluido()
             }
@@ -142,7 +167,20 @@ fun TelaHome(
                     for (doc in resBase) {
                         val nome = doc.getString("nomeProduto") ?: ""
                         val codigo = doc.getString("codigoBarras") ?: ""
-                        val prodCatalogo = ProdutoPreco(id = "CATALOGO_$codigo", nomeProduto = nome, codigoBarras = codigo, mercado = "Catálogo Global", valor = 0.0, usuarioId = "Sistema", data = Date(), cidade = "")
+                        val listaPalavras = nome.lowercase().split(" ").filter { it.isNotBlank() }
+
+                        val prodCatalogo = ProdutoPreco(
+                            id = "CATALOGO_$codigo",
+                            nomeProduto = nome,
+                            nomePesquisa = nome.lowercase(),
+                            palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                            codigoBarras = codigo,
+                            mercado = "Catálogo Global",
+                            valor = 0.0,
+                            usuarioId = "Sistema",
+                            data = Date(),
+                            cidade = ""
+                        )
                         if (todosProdutos.none { it.nomeProduto == nome }) todosProdutos.add(prodCatalogo)
                     }
                     carregandoMais = false; temMais = false; onConcluido()
@@ -185,7 +223,22 @@ fun TelaHome(
                 scope.launch {
                     val resultadoIA = GeminiService.buscarPrecoOnline(termo = termoBusca, codigoBarras = if (isBarcode) termoBusca else "")
                     if (resultadoIA != null) {
-                        val novaOfertaIA = ProdutoPreco(id = "", usuarioId = "IA_Gemini", nomeProduto = resultadoIA.nome, nomePesquisa = resultadoIA.nome.lowercase(), mercado = resultadoIA.mercado, valor = resultadoIA.valor, data = Date(), codigoBarras = if (isBarcode) termoBusca else "", fotoBase64 = "", comentario = "Preço encontrado via IA", estado = estadoAtual, cidade = cidadeAtual)
+                        val listaPalavras = resultadoIA.nome.lowercase().split(" ").filter { it.isNotBlank() }
+                        val novaOfertaIA = ProdutoPreco(
+                            id = "",
+                            usuarioId = "IA_Gemini",
+                            nomeProduto = resultadoIA.nome,
+                            nomePesquisa = resultadoIA.nome.lowercase(),
+                            palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                            mercado = resultadoIA.mercado,
+                            valor = resultadoIA.valor,
+                            data = Date(),
+                            codigoBarras = if (isBarcode) termoBusca else "",
+                            fotoBase64 = "",
+                            comentario = "Preço encontrado via IA",
+                            estado = estadoAtual,
+                            cidade = cidadeAtual
+                        )
                         db.collection("ofertas").add(novaOfertaIA).addOnSuccessListener { docRef ->
                             todosProdutos.add(0, novaOfertaIA.copy(id = docRef.id))
                         }
@@ -302,7 +355,8 @@ fun TelaHome(
             },
             onCarregarMais = { carregarProdutos() },
             onCardClick = { carregarDetalhesCompletos(it) },
-            onEditClick = { onIrCadastro(it.copy(id = "", mercado = "", valor = 0.0, usuarioId = "")) }, // Limpa mercado/ID para novo cadastro
+            // Ao ir para cadastro, limpa dados para novo mas mantem base se necessário
+            onEditClick = { onIrCadastro(it.copy(id = "", mercado = "", valor = 0.0, usuarioId = "", palavrasChave = emptyList())) },
             onCartClick = { adicionarAoCarrinho(it) }
         )
     }
@@ -337,6 +391,7 @@ fun TelaHome(
     }
 }
 
+// --- FUNÇÃO AUXILIAR NECESSÁRIA (ADICIONADA) ---
 fun capitalizarTextoHelper(texto: String): String {
     return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
         palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
