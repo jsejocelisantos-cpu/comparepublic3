@@ -60,6 +60,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.text.NumberFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -133,19 +134,16 @@ fun TelaCadastro(
     var salvando by remember { mutableStateOf(false) }
     var buscandoProduto by remember { mutableStateOf(false) }
 
-    // --- BUSCA AUTOMÁTICA (CATÁLOGO -> OFERTAS) ---
-    // (Lógica de Open Food Facts removida)
+    // --- BUSCA AUTOMÁTICA ---
     LaunchedEffect(codigoBarras) {
         if (codigoBarras.length >= 8 && nomeProduto.isEmpty() && !buscandoProduto) {
             buscandoProduto = true
-            // 1. Busca no Catálogo Base
             db.collection("produtos_base").document(codigoBarras).get().addOnSuccessListener { doc ->
                 if (doc.exists()) {
                     nomeProduto = doc.getString("nomeProduto") ?: ""
                     Toast.makeText(context, "Produto encontrado no catálogo!", Toast.LENGTH_SHORT).show()
                     buscandoProduto = false
                 } else {
-                    // 2. Busca no Histórico de Ofertas
                     db.collection("ofertas").whereEqualTo("codigoBarras", codigoBarras).limit(1).get().addOnSuccessListener { res ->
                         if (!res.isEmpty) {
                             val p = res.documents[0].toObject(ProdutoPreco::class.java)
@@ -169,11 +167,9 @@ fun TelaCadastro(
         }
     }
 
-    // --- TELA CÂMERA ---
     if (mostrarCamera) {
         CameraPreview(onFotoTirada = { b -> fotoBase64 = bitmapParaString(b); mostrarCamera = false }, onFechar = { mostrarCamera = false })
     } else {
-        // --- DIALOG FOTO ---
         if (mostrarOpcoesFoto) {
             AlertDialog(
                 onDismissRequest = { mostrarOpcoesFoto = false },
@@ -196,7 +192,6 @@ fun TelaCadastro(
         ) { padding ->
             LazyColumn(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
 
-                // 1. SCANNER + FOTO
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
@@ -216,13 +211,11 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
-                // 2. NOME
                 item {
                     OutlinedTextField(value = nomeProduto, onValueChange = { nomeProduto = it }, label = { Text("Nome do Produto") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 3. PREÇO
                 item {
                     OutlinedTextField(
                         value = valorFormatado,
@@ -235,7 +228,6 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 4. MERCADO
                 item {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
@@ -255,13 +247,11 @@ fun TelaCadastro(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // 5. OBS
                 item {
                     OutlinedTextField(value = comentario, onValueChange = { comentario = it }, label = { Text("Obs (opcional)") }, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // 6. BOTÃO SALVAR
                 item {
                     Button(
                         onClick = {
@@ -298,7 +288,17 @@ fun TelaCadastro(
                                     )
                                     val docRef = if (idParaSalvar.isNotEmpty()) ofertasRef.document(idParaSalvar) else ofertasRef.document()
                                     docRef.set(nova.copy(id = docRef.id)).addOnSuccessListener {
-                                        db.collection("mercados").document(mercadoBonito).set(DadosMercado(mercadoBonito, mercadoBonito, "", "", "", cidadeSelecionada))
+                                        // AGORA FUNCIONA: O modelo DadosMercado tem todos os campos
+                                        db.collection("mercados").document(mercadoBonito).set(
+                                            DadosMercado(
+                                                id = mercadoBonito,
+                                                nome = mercadoBonito,
+                                                endereco = "",
+                                                bairro = "",
+                                                cep = "",
+                                                cidade = cidadeSelecionada
+                                            )
+                                        )
                                         Toast.makeText(context, if(idParaSalvar.isNotEmpty()) "Atualizado!" else "Criado!", Toast.LENGTH_SHORT).show()
                                         onSalvar(mercadoBonito)
                                     }.addOnFailureListener { salvando = false; Toast.makeText(context, "Erro ao salvar", Toast.LENGTH_SHORT).show() }
@@ -324,7 +324,11 @@ fun capitalizarTexto(texto: String): String {
 fun CameraPreview(onFotoTirada: (Bitmap) -> Unit, onFechar: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+
+    // REMOVIDO TIPO EXPLÍCITO ListenableFuture PARA EVITAR ERRO DE IMPORT
+    // O Kotlin infere o tipo automaticamente
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+
     val imageCapture = remember { ImageCapture.Builder().build() }
     val executor = remember { ContextCompat.getMainExecutor(context) }
 

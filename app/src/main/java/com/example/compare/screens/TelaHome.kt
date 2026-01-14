@@ -4,12 +4,17 @@ import android.app.Activity
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info // <--- IMPORTAÇÃO ADICIONADA AQUI
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.compare.model.DadosMercado
@@ -67,6 +72,8 @@ fun TelaHome(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
+
+    val focusManager = LocalFocusManager.current
 
     // ====================================================================================
     // --- LÓGICA DE NEGÓCIO ---
@@ -126,14 +133,13 @@ fun TelaHome(
                 if (docBase.exists()) {
                     val nome = docBase.getString("nomeProduto") ?: ""
                     val codigo = docBase.getString("codigoBarras") ?: ""
-                    // Gera palavras chave para o produto do catálogo
                     val listaPalavras = nome.lowercase().split(" ").filter { it.isNotBlank() }
 
                     val prodCatalogo = ProdutoPreco(
                         id = "CATALOGO_$codigo",
                         nomeProduto = nome,
                         nomePesquisa = nome.lowercase(),
-                        palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                        palavrasChave = listaPalavras,
                         codigoBarras = codigo,
                         mercado = "Catálogo Global",
                         valor = 0.0,
@@ -148,7 +154,7 @@ fun TelaHome(
                         codigoBarras = termo,
                         nomeProduto = "",
                         nomePesquisa = "",
-                        palavrasChave = emptyList(), // CORREÇÃO: Adicionado
+                        palavrasChave = emptyList(),
                         mercado = "",
                         valor = 0.0,
                         data = Date(),
@@ -173,7 +179,7 @@ fun TelaHome(
                             id = "CATALOGO_$codigo",
                             nomeProduto = nome,
                             nomePesquisa = nome.lowercase(),
-                            palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                            palavrasChave = listaPalavras,
                             codigoBarras = codigo,
                             mercado = "Catálogo Global",
                             valor = 0.0,
@@ -229,7 +235,7 @@ fun TelaHome(
                             usuarioId = "IA_Gemini",
                             nomeProduto = resultadoIA.nome,
                             nomePesquisa = resultadoIA.nome.lowercase(),
-                            palavrasChave = listaPalavras, // CORREÇÃO: Adicionado
+                            palavrasChave = listaPalavras,
                             mercado = resultadoIA.mercado,
                             valor = resultadoIA.valor,
                             data = Date(),
@@ -391,7 +397,7 @@ fun TelaHome(
     }
 }
 
-// --- FUNÇÃO AUXILIAR NECESSÁRIA (ADICIONADA) ---
+// --- FUNÇÃO AUXILIAR NECESSÁRIA ---
 fun capitalizarTextoHelper(texto: String): String {
     return texto.trim().split("\\s+".toRegex()).joinToString(" ") { palavra ->
         palavra.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }

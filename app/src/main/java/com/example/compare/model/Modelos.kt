@@ -2,46 +2,40 @@ package com.example.compare.model
 
 import java.util.Date
 
-// --- 1. MODELO DE DADOS PRINCIPAL ---
 data class ProdutoPreco(
     val id: String = "",
-    val codigoBarras: String = "",
+    val usuarioId: String = "",
     val nomeProduto: String = "",
-    val nomePesquisa: String = "", // Usado para ordenação ou busca antiga
-
-    // --- NOVO CAMPO: LISTA DE PALAVRAS-CHAVE ---
-    // Armazena cada palavra do nome separadamente para busca flexível (ex: "arroz", "tio")
-    val palavrasChave: List<String> = emptyList(),
-
-    val valor: Double = 0.0,
+    val nomePesquisa: String = "",
+    val palavrasChave: List<String> = emptyList(), // Necessário para a busca
     val mercado: String = "",
-    val cidade: String = "",
-    val estado: String = "",
+    val valor: Double = 0.0,
     val data: Date = Date(),
-    val usuarioId: String = "anonimo",
-    val metodoEntrada: String = "MANUAL",
-    val comentario: String = "",
+    val codigoBarras: String = "",
     val fotoBase64: String = "",
-    val chatComentarios: List<String> = emptyList()
-)
-
-// --- 2. DADOS DO MERCADO ---
-data class DadosMercado(
-    val id: String = "",
-    val nome: String = "",
-    val endereco: String = "",
-    val telefone: String = "",
-    val horario: String = "",
+    val comentario: String = "",
+    val chatComentarios: List<String> = emptyList(),
+    val estado: String = "",
     val cidade: String = ""
 )
 
-// --- 3. USUÁRIO ---
-data class Usuario(
-    val nome: String = "",
-    val ultimoAcesso: Date = Date()
+data class ItemLista(
+    val id: String = "",
+    val usuarioId: String = "",
+    val nomeProduto: String = "",
+    val codigoBarras: String = "",
+    val quantidade: Int = 1,
+    val comprado: Boolean = false
 )
 
-// --- 4. SUPORTE ---
+data class Usuario(
+    val id: String = "",
+    val nome: String = "",
+    val email: String = "",
+    val ultimoAcesso: Date = Date(),
+    val isAdmin: Boolean = false
+)
+
 data class MensagemSuporte(
     val id: String = "",
     val usuario: String = "",
@@ -51,12 +45,14 @@ data class MensagemSuporte(
     val dataResposta: Date? = null
 )
 
-// --- 5. ITEM DA LISTA DE COMPRAS ---
-data class ItemLista(
+// ATUALIZADO: Contém todos os campos para evitar erros de "No parameter found"
+data class DadosMercado(
     val id: String = "",
-    val usuarioId: String = "",
-    val nomeProduto: String = "", // Nome para buscar ofertas
-    val codigoBarras: String = "", // Opcional, ajuda na precisão
-    val quantidade: Int = 1,
-    val comprado: Boolean = false // Checkbox
+    val nome: String = "",
+    val endereco: String = "",
+    val bairro: String = "",
+    val cep: String = "",
+    val cidade: String = "",
+    val telefone: String = "",
+    val horario: String = ""
 )
